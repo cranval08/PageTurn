@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { FlipBook, type FlipBookHandle } from "../components/FlipBook";
+import { ReaderSettingsSheet } from "../components/ReaderSettingsSheet";
+import { Toolbar } from "../components/Toolbar";
+import { ZoomLayer, type ZoomLayerHandle } from "../components/ZoomLayer";
 import { getBook, getBookFile, markOpened } from "../lib/db/books";
 import { getProgress, savePage } from "../lib/db/progress";
 import type { Book } from "../lib/db/schema";
 import { debounce } from "../lib/debounce";
-import { isTap, keyToAction, tapZone } from "../lib/input";
+import { keyToAction, type NavAction } from "../lib/input";
 import {
   chooseLayout,
+  chromeInset,
   fitPageSize,
   pageAnnouncement,
   pageLabel,
@@ -16,8 +20,10 @@ import {
   type Layout,
 } from "../lib/layout";
 import { openPdf, PdfOpenError, type PDFDocumentProxy } from "../lib/pdf/loader";
+import { MAX_ZOOM, MIN_ZOOM } from "../lib/zoom";
 import { useReaderStore } from "../store/reader";
 import { useSettings } from "../store/settings";
+import { useAutoHide } from "./useAutoHide";
 
 /** PRG-1: progress is saved this long after the last page turn. */
 export const SAVE_DEBOUNCE_MS = 500;
@@ -52,6 +58,21 @@ function useViewportSize(debounceMs = 120) {
   return size;
 }
 
+function useFullscreen() {
+  const supported = typeof document !== "undefined" && Boolean(document.fullscreenEnabled);
+  const [active, setActive] = useState(() => Boolean(document.fullscreenElement));
+  useEffect(() => {
+    const onChange = () => setActive(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  const toggle = useCallback(() => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void document.documentElement.requestFullscreen?.().catch(() => {});
+  }, []);
+  return { supported, active, toggle };
+}
+
 /** 1-based page to persist: the left page of a spread (PRD data model). */
 function pageToSave(index: number, layout: Layout): number {
   return (layout === "spread" ? spreadLeftIndex(index) : index) + 1;
@@ -61,20 +82,33 @@ export default function ReaderPage() {
   const { bookId = "" } = useParams();
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
-  const [chromeVisible, setChromeVisible] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [goToOpen, setGoToOpen] = useState(false);
   const pageIndex = useReaderStore((s) => s.pageIndex);
+  const settledZoom = useReaderStore((s) => s.settledZoom);
   const setPageIndex = useReaderStore((s) => s.setPageIndex);
   const layoutMode = useSettings((s) => s.layout);
+  const animation = useSettings((s) => s.animation);
   const viewport = useViewportSize();
   const layout = chooseLayout(layoutMode, viewport.width, viewport.height);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   const bookRef = useRef<FlipBookHandle>(null);
-  const pointerDown = useRef<{ x: number; y: number; t: number } | null>(null);
+  const zoomRef = useRef<ZoomLayerHandle>(null);
+  const chrome = useAutoHide(settingsOpen || goToOpen);
+  const fullscreen = useFullscreen();
+
+  useEffect(() => {
+    useReaderStore.getState().setLayout(layout);
+  }, [layout]);
 
   // PRG-1: debounced save of page + last-opened time; flushed when leaving.
   const saver = useMemo(
-    () => debounce((page: number) => void savePage(bookId, page).catch((err) => console.error("Saving progress failed", err)), SAVE_DEBOUNCE_MS),
+    () =>
+      debounce(
+        (page: number) => void savePage(bookId, page).catch((err) => console.error("Saving progress failed", err)),
+        SAVE_DEBOUNCE_MS,
+      ),
     [bookId],
   );
   useEffect(() => {
@@ -96,6 +130,9 @@ export default function ReaderPage() {
     let cancelled = false;
     let doc: PDFDocumentProxy | null = null;
     setLoad({ status: "loading" });
+    const store = useReaderStore.getState();
+    store.setSettledZoom(1);
+    store.setFlipping(false);
     (async () => {
       const book = await getBook(bookId);
       const data = book ? await getBookFile(bookId) : undefined;
@@ -111,7 +148,8 @@ export default function ReaderPage() {
         const vp = first.getViewport({ scale: 1 });
         if (cancelled) return;
         const start = Math.min(Math.max((progress?.page ?? 1) - 1, 0), doc.numPages - 1);
-        setPageIndex(start);
+        store.setPageCount(doc.numPages);
+        store.setPageIndex(start);
         void markOpened(bookId);
         setLoad({ status: "ready", book, doc, aspect: vp.width / vp.height });
       } catch (err) {
@@ -127,7 +165,7 @@ export default function ReaderPage() {
       cancelled = true;
       void doc?.loadingTask.destroy();
     };
-  }, [bookId, attempt, setPageIndex]);
+  }, [bookId, attempt]);
 
   const handleFlip = useCallback(
     (index: number) => {
@@ -137,45 +175,29 @@ export default function ReaderPage() {
     [setPageIndex, saver],
   );
 
-  const next = useCallback(() => bookRef.current?.next(), []);
-  const prev = useCallback(() => bookRef.current?.prev(), []);
+  /** Turning by key, tap or button leaves zoom (zoomed swipes pan instead: RDR-6). */
+  const turn = useCallback((dir: NavAction) => {
+    zoomRef.current?.reset();
+    if (dir === "next") bookRef.current?.next();
+    else bookRef.current?.prev();
+  }, []);
 
   // RDR-3 keyboard navigation.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (target?.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
       if (e.key === " " && target?.closest("button, a")) return; // let Space activate controls
       const action = keyToAction(e);
       if (!action) return;
       e.preventDefault();
-      if (action === "next") next();
-      else prev();
+      turn(action);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [next, prev]);
+  }, [turn]);
 
-  // RDR-3 tap zones. Pointer events still fire when page-flip calls preventDefault on touch.
-  const onPointerDown = (e: React.PointerEvent) => {
-    pointerDown.current = { x: e.clientX, y: e.clientY, t: performance.now() };
-  };
-  const onPointerUp = (e: React.PointerEvent) => {
-    const start = pointerDown.current;
-    pointerDown.current = null;
-    if (!start || !e.isPrimary) return;
-    if (!isTap(e.clientX - start.x, e.clientY - start.y, performance.now() - start.t)) return;
-    const zone = tapZone(e.clientX, window.innerWidth);
-    // Defer until page-flip has handled the same mouseup/touchend: if it started
-    // a flip itself (corner click), it is no longer idle and we must not flip again.
-    window.setTimeout(() => {
-      if (zone === "center") setChromeVisible((v) => !v);
-      else if (bookRef.current?.isIdle()) {
-        if (zone === "next") next();
-        else prev();
-      }
-    }, 0);
-  };
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
   if (load.status === "missing") {
     return (
@@ -197,65 +219,85 @@ export default function ReaderPage() {
 
   const pixelRatio = Math.min(window.devicePixelRatio || 1, 3);
   const title = load.status === "loading" ? "" : load.book.title;
+  const pageCount = load.status === "ready" ? load.doc.numPages : 0;
+  const zoomed = settledZoom > MIN_ZOOM + 0.001;
 
   return (
     <main className="reader relative h-dvh w-full overflow-hidden bg-stage select-none">
-      <header
-        className={`reader-bar absolute inset-x-0 top-0 z-20 flex items-center gap-3 px-3 py-2 transition-opacity ${
-          chromeVisible ? "opacity-100" : "pointer-events-none opacity-0"
-        }`}
-      >
-        <Link to="/" className="icon-btn" aria-label="Back to library">
-          <span aria-hidden="true">←</span>
-        </Link>
-        <h1 className="min-w-0 flex-1 truncate font-serif text-base">{title}</h1>
-        {load.status === "ready" && (
-          <span className="tabular-nums text-sm" data-testid="page-indicator">
-            {pageLabel(pageIndex, load.doc.numPages, layout)}
-          </span>
-        )}
-      </header>
-
-      <div
-        className="absolute inset-0 grid place-items-center"
-        data-testid="stage"
-        onPointerDown={onPointerDown}
-        onPointerUp={onPointerUp}
-      >
-        {load.status === "loading" && (
-          <div className="pt-page-skeleton reader-skeleton" role="status" aria-label="Loading book">
-            <div className="pt-spinner" />
-          </div>
-        )}
-        {load.status === "error" && (
-          <div role="alert" className="max-w-sm rounded-lg bg-paper p-6 text-center shadow-lg">
-            <p className="text-ink">{load.message}</p>
-            <div className="mt-4 flex justify-center gap-3">
-              <button type="button" className="btn-primary" onClick={() => setAttempt((a) => a + 1)}>
-                Retry
-              </button>
-              <Link to="/" className="btn-secondary">
-                Back to library
-              </Link>
+      {load.status === "ready" ? (
+        <ReadyBook
+          bookRef={bookRef}
+          zoomRef={zoomRef}
+          doc={load.doc}
+          aspect={load.aspect}
+          layout={layout}
+          animation={animation}
+          viewport={viewport}
+          pixelRatio={pixelRatio}
+          onFlip={handleFlip}
+          onTurn={turn}
+          onToggleChrome={chrome.toggle}
+          onPointerActivity={chrome.show}
+        />
+      ) : (
+        <div className="absolute inset-0 grid place-items-center">
+          {load.status === "loading" && (
+            <div className="pt-page-skeleton reader-skeleton" role="status" aria-label="Loading book">
+              <div className="pt-spinner" />
             </div>
-          </div>
-        )}
-        {load.status === "ready" && (
-          <ReadyBook
-            bookRef={bookRef}
-            doc={load.doc}
-            aspect={load.aspect}
-            layout={layout}
-            viewport={viewport}
-            pixelRatio={pixelRatio}
-            onFlip={handleFlip}
-          />
-        )}
-      </div>
+          )}
+          {load.status === "error" && (
+            <div role="alert" className="max-w-sm rounded-lg bg-paper p-6 text-center shadow-lg">
+              <p className="text-ink">{load.message}</p>
+              <div className="mt-4 flex justify-center gap-3">
+                <button type="button" className="btn-primary" onClick={() => setAttempt((a) => a + 1)}>
+                  Retry
+                </button>
+                <Link to="/" className="btn-secondary">
+                  Back to library
+                </Link>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <Toolbar
+        visible={chrome.visible || load.status !== "ready"}
+        title={title}
+        indicator={load.status === "ready" ? pageLabel(pageIndex, pageCount, layout) : "–"}
+        pageCount={Math.max(pageCount, 1)}
+        currentPage={pageToSave(pageIndex, layout)}
+        zoomPercent={Math.round(settledZoom * 100)}
+        canZoomIn={load.status === "ready" && settledZoom < MAX_ZOOM}
+        canZoomOut={zoomed}
+        onZoomIn={() => zoomRef.current?.zoomIn()}
+        onZoomOut={() => zoomRef.current?.zoomOut()}
+        onGoTo={(page) => {
+          zoomRef.current?.reset();
+          bookRef.current?.goTo(page - 1);
+        }}
+        onOpenSettings={() => setSettingsOpen(true)}
+        fullscreen={fullscreen}
+        onActivity={chrome.show}
+        onPinnedChange={setGoToOpen}
+      />
+
+      {zoomed && (
+        <button
+          type="button"
+          className="btn-primary absolute bottom-20 left-1/2 z-30 -translate-x-1/2 shadow-lg"
+          onClick={() => zoomRef.current?.reset()}
+        >
+          Reset zoom
+        </button>
+      )}
+
+      {settingsOpen && <ReaderSettingsSheet onClose={closeSettings} />}
 
       {load.status === "ready" && (
         <p className="sr-only" aria-live="polite" data-testid="page-announcement">
-          {pageAnnouncement(pageIndex, load.doc.numPages, layout)}
+          {pageAnnouncement(pageIndex, pageCount, layout)}
         </p>
       )}
     </main>
@@ -263,29 +305,52 @@ export default function ReaderPage() {
 }
 
 function ReadyBook(props: {
-  bookRef: React.Ref<FlipBookHandle>;
+  bookRef: React.RefObject<FlipBookHandle>;
+  zoomRef: React.Ref<ZoomLayerHandle>;
   doc: PDFDocumentProxy;
   aspect: number;
   layout: Layout;
+  animation: "curl" | "slide" | "none";
   viewport: { width: number; height: number };
   pixelRatio: number;
   onFlip(index: number): void;
+  onTurn(dir: NavAction): void;
+  onToggleChrome(): void;
+  onPointerActivity(): void;
 }) {
-  const { doc, aspect, layout, viewport } = props;
-  const size = fitPageSize(layout, viewport.width, viewport.height, aspect, stageMargin(viewport.width));
+  const { doc, aspect, layout, viewport, bookRef } = props;
+  const inset = chromeInset(viewport.width);
+  const size = fitPageSize(layout, viewport.width, viewport.height - inset * 2, aspect, stageMargin(viewport.width));
   // Read (not subscribe): only needed when the book (re)mounts.
   const startIndex = useReaderStore.getState().pageIndex;
+  const content = useMemo(
+    () => ({ width: layout === "spread" ? size.width * 2 : size.width, height: size.height }),
+    [layout, size.width, size.height],
+  );
   return (
-    <FlipBook
-      ref={props.bookRef}
-      doc={doc}
-      pageCount={doc.numPages}
-      layout={layout}
-      pageWidth={size.width}
-      pageHeight={size.height}
-      pixelRatio={props.pixelRatio}
-      startIndex={startIndex}
-      onFlip={props.onFlip}
-    />
+    <ZoomLayer
+      ref={props.zoomRef}
+      content={content}
+      swipeToTurn={props.animation !== "curl"}
+      onTurn={props.onTurn}
+      onToggleChrome={props.onToggleChrome}
+      onPointerActivity={props.onPointerActivity}
+      isBookIdle={() => bookRef.current?.isIdle() ?? true}
+      cancelBookInput={() => bookRef.current?.cancelUserInput()}
+      onZoomSettled={(scale) => useReaderStore.getState().setSettledZoom(scale)}
+    >
+      <FlipBook
+        ref={bookRef}
+        doc={doc}
+        pageCount={doc.numPages}
+        layout={layout}
+        animation={props.animation}
+        pageWidth={size.width}
+        pageHeight={size.height}
+        pixelRatio={props.pixelRatio}
+        startIndex={startIndex}
+        onFlip={props.onFlip}
+      />
+    </ZoomLayer>
   );
 }

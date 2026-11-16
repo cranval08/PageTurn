@@ -53,10 +53,10 @@ test.describe("Phase 2: library, storage and progress", () => {
     // Full reload straight into the reader.
     await page.reload();
     await expect(indicator(page)).toHaveText(expected);
-    await expect(page.locator('[data-page="20"] canvas[data-rendered="true"]')).toBeVisible();
+    await expect(page.locator('[data-page="20"][data-rendered="true"]')).toBeVisible();
 
     // Close the book, reload the library, reopen from the card.
-    await page.getByRole("link", { name: "Back to library" }).click();
+    await page.getByRole("link", { name: "Back to library" }).press("Enter") // focus shows the auto-hidden toolbar;
     await page.reload();
     const card = page.getByTestId("book-card");
     await expect(card.getByTestId("book-progress")).toHaveText("p. 20 of 50 · 40%");
@@ -69,7 +69,7 @@ test.describe("Phase 2: library, storage and progress", () => {
     await readTo(page, 4);
     const text = await indicator(page).textContent();
     const expected = `p. ${text!.split(/[ –]/)[0]} of 50`;
-    await page.getByRole("link", { name: "Back to library" }).click(); // flushes immediately
+    await page.getByRole("link", { name: "Back to library" }).press("Enter") // focus shows the auto-hidden toolbar; // flushes immediately
     // The library waits for the flushed write, so it never shows a stale page…
     await expect(page.getByTestId("book-progress")).toContainText(expected);
     // …and the write is durable.
@@ -79,12 +79,12 @@ test.describe("Phase 2: library, storage and progress", () => {
 
   test("LIB-3/OFF-1: removing a book frees its blob (storage figure in settings)", async ({ page }) => {
     await addSample(page);
-    await page.getByRole("link", { name: "Back to library" }).click();
+    await page.getByRole("link", { name: "Back to library" }).press("Enter") // focus shows the auto-hidden toolbar;
     await page.getByRole("link", { name: "Settings" }).click();
     await expect(page.getByTestId("storage-used")).toHaveText("111 KB used by 1 book");
     expect(await countRows(page, "files")).toBe(1);
 
-    await page.getByRole("link", { name: "Back to library" }).click();
+    await page.getByRole("link", { name: "Back to library" }).press("Enter") // focus shows the auto-hidden toolbar;
     await page.getByRole("button", { name: /More actions for sample-50p/ }).click();
     await page.getByRole("menuitem", { name: "Remove from library" }).click();
     const dialog = page.getByRole("alertdialog", { name: "Remove from library?" });
@@ -101,7 +101,7 @@ test.describe("Phase 2: library, storage and progress", () => {
 
   test("LIB-3: cancelling the confirm keeps the book", async ({ page }) => {
     await addSample(page);
-    await page.getByRole("link", { name: "Back to library" }).click();
+    await page.getByRole("link", { name: "Back to library" }).press("Enter") // focus shows the auto-hidden toolbar;
     await page.getByRole("button", { name: /More actions for sample-50p/ }).click();
     await page.getByRole("menuitem", { name: "Remove from library" }).click();
     await page.keyboard.press("Escape");
@@ -112,13 +112,13 @@ test.describe("Phase 2: library, storage and progress", () => {
   test("OFF-1: clear cache keeps the library and progress, and the book reopens after re-adding", async ({ page }) => {
     await addSample(page);
     await readTo(page, 6);
-    await page.getByRole("link", { name: "Back to library" }).click();
+    await page.getByRole("link", { name: "Back to library" }).press("Enter") // focus shows the auto-hidden toolbar;
     await page.getByRole("link", { name: "Settings" }).click();
     await page.getByRole("button", { name: "Clear cache" }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Clear cache" }).click();
     await expect(page.getByTestId("storage-used")).toHaveText("0 B used by 0 books");
 
-    await page.getByRole("link", { name: "Back to library" }).click();
+    await page.getByRole("link", { name: "Back to library" }).press("Enter") // focus shows the auto-hidden toolbar;
     const card = page.getByTestId("book-card");
     await expect(card).toContainText("Not on this device");
     await card.getByRole("button", { name: /^Open sample-50p/ }).click();
@@ -185,7 +185,7 @@ test.describe("Phase 2: library, storage and progress", () => {
     test.skip(info.project.name !== "desktop-chrome", "desktop viewport");
     await page.goto("/settings");
     await page.getByRole("radio", { name: /Single/ }).check();
-    await page.getByRole("link", { name: "Back to library" }).click();
+    await page.getByRole("link", { name: "Back to library" }).press("Enter") // focus shows the auto-hidden toolbar;
     await page.getByTestId("file-input").setInputFiles(SAMPLE);
     await expect(page.locator(".pt-book")).toHaveAttribute("data-layout", "single");
     // Persisted across reloads.

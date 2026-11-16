@@ -69,8 +69,8 @@ test.describe("Phase 3: Google sign-in and Drive", () => {
       await page.getByRole("button", { name: new RegExp(`^Open ${title}`) }).click();
       await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
       await expect(page.getByTestId("page-indicator")).toHaveText("1 / 50");
-      await expect(page.locator('[data-page="1"] canvas[data-rendered="true"]')).toBeVisible();
-      await page.getByRole("link", { name: "Back to library" }).click();
+      await expect(page.locator('[data-page="1"][data-rendered="true"]')).toBeVisible();
+      await page.getByRole("link", { name: "Back to library" }).press("Enter") // focus shows the auto-hidden toolbar;
     }
   });
 

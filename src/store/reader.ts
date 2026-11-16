@@ -1,19 +1,31 @@
 import { create } from "zustand";
+import type { Layout } from "../lib/layout";
 
 interface ReaderState {
   /** 0-based index of the current page (the left page of a spread). */
   pageIndex: number;
+  layout: Layout;
+  pageCount: number;
+  /** A flip or drag is in progress (RDR-5: crisp rendering waits until it settles). */
+  flipping: boolean;
+  /** Zoom level once pinching/scrolling has stopped; drives re-rendering at higher resolution. */
+  settledZoom: number;
   setPageIndex(index: number): void;
+  setLayout(layout: Layout): void;
+  setPageCount(count: number): void;
+  setFlipping(flipping: boolean): void;
+  setSettledZoom(zoom: number): void;
 }
 
 export const useReaderStore = create<ReaderState>((set) => ({
   pageIndex: 0,
+  layout: "single",
+  pageCount: 0,
+  flipping: false,
+  settledZoom: 1,
   setPageIndex: (pageIndex) => set({ pageIndex }),
+  setLayout: (layout) => set({ layout }),
+  setPageCount: (pageCount) => set({ pageCount }),
+  setFlipping: (flipping) => set({ flipping }),
+  setSettledZoom: (settledZoom) => set({ settledZoom }),
 }));
-
-/** Pages within this many indexes of the current page keep a canvas (Phase 4 tightens this to an LRU). */
-export const RENDER_WINDOW = 3;
-
-export function isInRenderWindow(index: number, current: number): boolean {
-  return Math.abs(index - current) <= RENDER_WINDOW;
-}

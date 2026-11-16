@@ -112,3 +112,50 @@ body {
     @apply flex min-h-11 w-full items-center px-4 text-left hover:bg-paper focus-visible:bg-paper;
   }
 }
+
+/* Phase 4: zoom layer, cached page canvases, slide animation, segmented controls */
+.pt-zoom {
+  transform-origin: center center;
+}
+
+.pt-page-host {
+  position: absolute;
+  inset: 0;
+}
+
+.pt-book[data-slide="next"] {
+  animation: pt-slide-next 220ms ease-out;
+}
+.pt-book[data-slide="prev"] {
+  animation: pt-slide-prev 220ms ease-out;
+}
+@keyframes pt-slide-next {
+  from {
+    transform: translateX(8%);
+    opacity: 0.4;
+  }
+}
+@keyframes pt-slide-prev {
+  from {
+    transform: translateX(-8%);
+    opacity: 0.4;
+  }
+}
+
+@layer components {
+  .segment {
+    @apply relative block cursor-pointer;
+  }
+  .segment-label {
+    @apply flex min-h-11 items-center justify-center rounded-md px-2 text-sm text-ink peer-checked:bg-white peer-checked:font-semibold peer-checked:shadow-sm peer-focus-visible:outline-3 peer-focus-visible:outline-offset-1 peer-focus-visible:outline-accent;
+  }
+}
+
+/* Toolbars overlay the book: only their controls take input, so the page
+   corners underneath stay draggable. Hidden bars take none at all. */
+.reader-bar {
+  pointer-events: none;
+}
+.reader-bar[data-visible="true"] > * {
+  pointer-events: auto;
+}

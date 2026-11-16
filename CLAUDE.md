@@ -10,7 +10,8 @@ PDF flipbook reader PWA with Google Drive. **`PRD.md` is the spec**: requirement
 - Zustand for state (`src/store/`), Tailwind CSS v4 via `@tailwindcss/vite` (theme tokens in `src/index.css` `@theme`)
 - Vitest + Testing Library (jsdom) for unit/component tests; Playwright (Chromium: `desktop-chrome`, `pixel-7`) for e2e
 - Dexie 4 (IndexedDB). Google: GIS token client + Picker (scripts loaded at runtime, typed in `src/types/google.d.ts`) + Drive v3 REST over `fetch`
-- Planned per PRD: `@use-gesture/react` + `vite-plugin-pwa` (Phase 4)
+- `@use-gesture/react` (zoom/pan/taps in `ZoomLayer`), `vite-plugin-pwa` (generateSW, `registerType: "prompt"`, registered in `src/pwa.ts`)
+- Tooling: Lighthouse (accessibility only; PWA category no longer exists), `@axe-core/playwright`
 
 ## Commands
 
@@ -20,7 +21,9 @@ PDF flipbook reader PWA with Google Drive. **`PRD.md` is the spec**: requirement
 | `npm run build` | `tsc --noEmit` type check, then `vite build` |
 | `npm test` | Vitest unit + component tests (`tests/unit`) |
 | `npm run test:e2e` | Playwright; builds into `dist-e2e` with FAKE `VITE_GOOGLE_*` (see `playwright.config.ts`) and serves it on :4173 |
-| `npm run fixtures` | Regenerates `tests/fixtures/*.pdf` (no deps) |
+| `npm run fixtures` | Regenerates `tests/fixtures/*.pdf` (builder in `scripts/pdf-builder.mjs`, also used by e2e for the 1,000-page PDF) |
+| `npm run lighthouse` | Builds, then Lighthouse accessibility on library/reader/settings, mobile + desktop; fails below 90 |
+| `npm run icons` | Re-renders `public/icons/*.png` from the SVG in `scripts/make-icons.mjs` |
 
 Before calling a phase done: `npm run build`, `npm test` and `npm run test:e2e` must all pass.
 First Playwright run on a machine: `npx playwright install chromium`.
@@ -29,7 +32,8 @@ First Playwright run on a machine: `npx playwright install chromium`.
 
 ```
 src/app/         route screens (LibraryPage, ReaderPage; Settings/Privacy later)
-src/components/  FlipBook (react-pageflip wrapper), PdfPage (one canvas page)
+src/components/  FlipBook (react-pageflip wrapper), PdfPage (one page; canvas from PageCache), ZoomLayer (all reader gestures),
+                 Toolbar, GoToPage, ReaderSettingsSheet, BookCard, Menu, ImportPanel, …
 src/lib/         pure logic: layout.ts, input.ts, files.ts; pdf/ (loader, renderPage)
 src/lib/db/      Dexie: schema.ts (books, files, progress, kv), books.ts, progress.ts, settingsStorage.ts
 src/lib/addBook.ts, addDriveBook.ts  validate → open → cover → save pipelines (device, Drive)
@@ -68,3 +72,12 @@ tests/unit/      *.test.ts(x)    tests/e2e/  *.spec.ts    tests/fixtures/  sampl
 - page-flip ignores turns while animating; `FlipBook` queues one pending turn.
 - page-flip calls `preventDefault` on touchstart, so no `click` events fire on the book: tap zones use pointer events and run one tick later, only if the book is still idle (avoids double flips on corner taps).
 - PRD fallback if react-pageflip becomes untenable: wrap `page-flip` directly (~80 lines).
+- Animation (RDR-4): `curl` = page-flip animates and owns drag/swipe. `slide`/`none` = page-flip input is OFF (`useMouseEvents=false`, remount via key), turns use `turnToNext/PrevPage`, ZoomLayer turns on swipe; slide adds a CSS animation (`data-slide`). Default `none` when the OS asks for reduced motion.
+
+## Rendering, zoom and toolbar (Phase 4)
+
+- Rendering (RDR-5, Memory NFR): `renderPlan.ts` decides per page: visible + settled → "high" (device px ratio × settled zoom, capped at 8 MP), visible while flipping or neighbour (± 2) → "low" (0.5 px/CSS px), otherwise none. Canvases live in one `PageCache` LRU (max 6) per document/size and are attached imperatively to `.pt-page-host`; eviction releases them. Pages expose `data-rendered` and `data-quality` (tests rely on these).
+- ZoomLayer owns all reader gestures (taps, double-tap centre, pinch, Ctrl/Cmd+wheel, pan, swipe). When zoomed an overlay covers the book so page-flip gets no input; a 2-finger touchstart cancels page-flip's touch (`cancelUserInput`). Any page turn resets zoom.
+- Toolbar (RDR-7): auto-hides after 3 s (`useAutoHide`), stays while go-to-page/settings are open; hidden bars stay focusable and focus shows them. Bar backgrounds are click-through. On screens ≥ 640 px the book fits between the bars (`chromeInset`), because mouse movement re-shows the bars over the page corners; phones stay full-bleed.
+- E2E: service workers are BLOCKED by default (they bypass `page.route` mocks); `tests/e2e/pwa.spec.ts` opts in. Tests reach auto-hidden controls via the keyboard (`.press("Enter")`/`.focus()`), like a keyboard user.
+- PWA: never auto-reload a reader; `UpdateToast` offers Reload. Precache includes the pdf.js worker (.mjs) so books open offline.

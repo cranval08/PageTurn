@@ -4,7 +4,7 @@ Read PDFs as a book. PageTurn is an installable web app (PWA) that opens PDFs fr
 
 No backend, no database, no analytics: everything runs and is stored in your browser.
 
-> **Status:** Phases 1–3 of 6 done (local flipbook, library and progress, Google Drive). See [`PRD.md`](PRD.md) for the full spec and roadmap.
+> **Status:** Phases 1–4 of 6 done (MVP: local flipbook, library and progress, Google Drive, reader polish and offline install). See [`PRD.md`](PRD.md) for the full spec and roadmap.
 
 ## Features
 
@@ -14,7 +14,12 @@ No backend, no database, no analytics: everything runs and is stored in your bro
 - Open a PDF from your device with the file picker or by dragging it onto the page (no sign-in needed)
 - Library of covers with reading progress ("p. 84 of 312 · 27%"), a Continue reading strip, and Remove from library
 - Reopens every book at the page where you stopped; books are saved on the device and open without internet
-- Settings: page layout (Auto / Single / Spread), storage used, Clear cache, Google account and Sign out
+- Zoom 100–400% by pinch, double-tap, Ctrl/Cmd + scroll or the +/− buttons; while zoomed, swipes pan instead of turning
+- Toolbar that hides itself after 3 seconds (tap the centre to bring it back), Go to page, full screen
+- Page turn animation: Curl, Slide or None (None by default if your device asks for reduced motion)
+- Sharp pages: a quick low-resolution render first, then a crisp one; only a few pages are kept in memory, so even 1,000-page PDFs stay smooth
+- Installable app that works offline: the app and every book you've opened load without internet
+- Settings: page layout (Auto / Single / Spread), page turn, storage used, Clear cache, Google account and Sign out
 - Page-curl animation with page shadow, rendered sharply with pdf.js
 - Two-page spread on landscape screens at least 900 px wide, single page otherwise; switches live on resize or rotate and keeps your page
 - Turn pages by swiping, dragging a corner, tapping the left or right 20% of the screen, or with the Arrow keys, PageUp/PageDown and Space (Shift+Space goes back)
@@ -24,7 +29,6 @@ No backend, no database, no analytics: everything runs and is stored in your bro
 
 | Phase | Adds |
 | --- | --- |
-| 4 | Toolbar, go to page, zoom and pan, reduced-motion setting, installable offline PWA |
 | 5 | Page scrubber, table of contents, thumbnails, PDF links, light/sepia/dark themes, bookmarks, library search |
 | 6 | Sync progress across devices through Google Drive, privacy page, deployment |
 
@@ -49,12 +53,24 @@ Then open http://localhost:5173 and choose **Open from this device**.
 | `npm test` | Runs unit and component tests (Vitest) |
 | `npm run test:e2e` | Builds the app with fake Google keys into `dist-e2e/` and runs end-to-end tests (Playwright, desktop Chrome and Pixel 7). Google is fully mocked; test real Drive by hand. |
 | `npm run fixtures` | Regenerates the test PDFs in `tests/fixtures/` |
+| `npm run lighthouse` | Builds the app and runs a Lighthouse accessibility audit of every screen (fails below 90) |
+| `npm run icons` | Regenerates the app icons in `public/icons/` |
 
 Before running the end-to-end tests for the first time, install the browser:
 
 ```bash
 npx playwright install chromium
 ```
+
+## Installing the app
+
+PageTurn is a Progressive Web App. Once it's served over HTTPS (or on localhost):
+
+- **Android (Chrome):** menu ⋮ → *Install app* (or *Add to Home screen*).
+- **iPhone / iPad (Safari):** Share → *Add to Home Screen*. Installing also stops iOS from clearing your saved books after weeks without use.
+- **Desktop (Chrome / Edge):** the install icon at the right of the address bar.
+
+The installed app and every book you've opened work offline. When a new version is available, PageTurn shows a *Reload* button instead of restarting while you read.
 
 ## Google Cloud setup (for Google Drive)
 

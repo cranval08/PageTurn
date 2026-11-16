@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#1F5F5B"/>
+  <g transform="translate(256 262) scale(0.92)">
+    <path d="M-10 -128 C -64 -160 -140 -160 -186 -136 L -186 132 C -140 110 -64 110 -10 140 Z" fill="#F6F4EF"/>
+    <path d="M10 -128 C 64 -160 140 -160 186 -136 L 186 70 L 120 132 C 84 120 44 124 10 140 Z" fill="#F6F4EF"/>
+    <path d="M186 70 L 120 132 C 128 104 150 82 186 70 Z" fill="#D9D3C4"/>
+    <path d="M-40 -70 C -80 -84 -110 -84 -135 -78" stroke="#1F5F5B" stroke-opacity="0.35" stroke-width="9" stroke-linecap="round" fill="none"/><path d="M-40 -35 C -80 -49 -110 -49 -135 -43" stroke="#1F5F5B" stroke-opacity="0.35" stroke-width="9" stroke-linecap="round" fill="none"/><path d="M-40 0 C -80 -14 -110 -14 -135 -8" stroke="#1F5F5B" stroke-opacity="0.35" stroke-width="9" stroke-linecap="round" fill="none"/><path d="M-40 35 C -80 21 -110 21 -135 27" stroke="#1F5F5B" stroke-opacity="0.35" stroke-width="9" stroke-linecap="round" fill="none"/><path d="M40 -70 C 80 -84 110 -84 135 -78" stroke="#1F5F5B" stroke-opacity="0.35" stroke-width="9" stroke-linecap="round" fill="none"/><path d="M40 -35 C 80 -49 110 -49 135 -43" stroke="#1F5F5B" stroke-opacity="0.35" stroke-width="9" stroke-linecap="round" fill="none"/><path d="M40 0 C 80 -14 110 -14 135 -8" stroke="#1F5F5B" stroke-opacity="0.35" stroke-width="9" stroke-linecap="round" fill="none"/><path d="M40 35 C 80 21 110 21 135 27" stroke="#1F5F5B" stroke-opacity="0.35" stroke-width="9" stroke-linecap="round" fill="none"/>
+  </g>
+</svg>

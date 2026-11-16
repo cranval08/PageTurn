@@ -11,7 +11,8 @@ const E2E_ENV = {
 export default defineConfig({
   testDir: "tests/e2e",
   timeout: 30_000,
-  use: { baseURL: "http://localhost:4173", trace: "retain-on-failure" },
+  // Service workers would bypass page.route mocks; the PWA spec opts back in.
+  use: { baseURL: "http://localhost:4173", trace: "retain-on-failure", serviceWorkers: "block" },
   webServer: {
     command: "npx vite build --outDir dist-e2e --emptyOutDir && npx vite preview --outDir dist-e2e --port 4173 --strictPort",
     url: "http://localhost:4173",

@@ -3,7 +3,11 @@ import HTMLFlipBook from "react-pageflip";
 import type { PageFlip } from "page-flip";
 import type { Layout } from "../lib/layout";
 import type { PDFDocumentProxy } from "../lib/pdf/loader";
-import { PageContext, PdfPage, type PageContextValue } from "./PdfPage";
+import { PageCache } from "../lib/pdf/pageCache";
+import { releaseCanvas } from "../lib/pdf/renderPage";
+import { MAX_RENDERED_PAGES } from "../lib/pdf/renderPlan";
+import { useReaderStore } from "../store/reader";
+import { PageContext, PdfPage, type CachedPage, type PageContextValue } from "./PdfPage";
 
 /**
  * page-flip 2.0.7 bug: flipPrev() starts the animation from a synthetic point at
@@ -57,13 +61,19 @@ function patchPortraitDragRelease(pf: PageFlip) {
   };
 }
 
+export type Animation = "curl" | "slide" | "none";
+
 export interface FlipBookHandle {
-  /** Turn forward. If a flip is animating, the turn is queued (one deep). */
+  /** Turn forward. During a curl animation the turn is queued (one deep). */
   next(): void;
-  /** Turn back. If a flip is animating, the turn is queued (one deep). */
+  /** Turn back. During a curl animation the turn is queued (one deep). */
   prev(): void;
+  /** RDR-9: jump straight to a 0-based page index. */
+  goTo(index: number): void;
   /** True when no flip or drag is in progress. */
   isIdle(): boolean;
+  /** Abandon any touch page-flip has started (a pinch is beginning). */
+  cancelUserInput(): void;
 }
 
 interface FlipBookProps {
@@ -73,36 +83,66 @@ interface FlipBookProps {
   pageWidth: number;
   pageHeight: number;
   pixelRatio: number;
+  /** RDR-4: curl uses page-flip's animation and gestures; slide/none turn instantly (slide adds a CSS slide). */
+  animation: Animation;
   /** Page shown when the book (re)mounts. Read only at mount. */
   startIndex: number;
   onFlip(index: number): void;
 }
 
+interface PageFlipInternals {
+  getUI(): { touchPoint: unknown } | null;
+  isUserTouch: boolean;
+  isUserMove: boolean;
+  getFlipController(): { stopMove(): void } | null;
+  turnToNextPage(): void;
+  turnToPrevPage(): void;
+}
+
 /**
- * RDR-1/RDR-2: thin wrapper over react-pageflip.
+ * RDR-1/RDR-2/RDR-4: thin wrapper over react-pageflip.
  *
  * Works around react-pageflip 2.0.3 quirks:
  * - It never destroys its PageFlip instance, so we call destroy() on remount/unmount.
  * - It binds event handlers once, so callbacks go through refs.
  * - Its own portrait rule differs from RDR-2, so we size the container ourselves,
  *   pass usePortrait only for single-page layout, and remount (via `key`) when
- *   the layout or page size changes, restarting at the current page.
+ *   the layout, page size or input mode changes, restarting at the current page.
  */
 export const FlipBook = forwardRef<FlipBookHandle, FlipBookProps>(function FlipBook(props, ref) {
-  const { doc, pageCount, layout, pageWidth, pageHeight, pixelRatio, startIndex } = props;
+  const { doc, pageCount, layout, pageWidth, pageHeight, pixelRatio, startIndex, animation } = props;
   const instanceRef = useRef<PageFlip | null>(null);
+  const bookRef = useRef<HTMLDivElement>(null);
   const onFlipRef = useRef(props.onFlip);
   onFlipRef.current = props.onFlip;
+  const animationRef = useRef(animation);
+  animationRef.current = animation;
 
   const pendingRef = useRef<"next" | "prev" | null>(null);
 
-  const bookKey = `${layout}:${pageWidth}x${pageHeight}`;
+  // Curl: page-flip handles drags and swipes itself. Slide/None: page-flip input is
+  // off and ZoomLayer turns pages instantly instead (reduced motion).
+  const curlInput = animation === "curl";
+  const bookKey = `${layout}:${pageWidth}x${pageHeight}:${curlInput ? "curl" : "instant"}`;
 
   // page-flip ignores flipNext/flipPrev while a flip animates, so quick key
   // presses would be lost. Queue one turn and run it when the book is idle again.
   const turn = useCallback((dir: "next" | "prev") => {
     const pf = instanceRef.current;
     if (!pf) return;
+    if (animationRef.current !== "curl") {
+      const internals = pf as unknown as PageFlipInternals;
+      const before = pf.getCurrentPageIndex();
+      if (dir === "next") internals.turnToNextPage();
+      else internals.turnToPrevPage();
+      const el = bookRef.current;
+      if (animationRef.current === "slide" && el && pf.getCurrentPageIndex() !== before) {
+        delete el.dataset.slide;
+        void el.offsetWidth; // restart the CSS animation
+        el.dataset.slide = dir;
+      }
+      return;
+    }
     const state = pf.getState();
     if (state === "read" || state === "fold_corner") {
       if (dir === "next") pf.flipNext();
@@ -117,7 +157,22 @@ export const FlipBook = forwardRef<FlipBookHandle, FlipBookProps>(function FlipB
     () => ({
       next: () => turn("next"),
       prev: () => turn("prev"),
+      goTo: (index: number) => {
+        const pf = instanceRef.current;
+        if (!pf) return;
+        pendingRef.current = null;
+        pf.turnToPage(Math.min(Math.max(index, 0), pf.getPageCount() - 1));
+      },
       isIdle: () => (instanceRef.current?.getState() ?? "read") === "read",
+      cancelUserInput: () => {
+        const pf = instanceRef.current as unknown as (PageFlip & PageFlipInternals) | null;
+        if (!pf) return;
+        const ui = pf.getUI();
+        if (ui) ui.touchPoint = null;
+        pf.isUserTouch = false;
+        pf.isUserMove = false;
+        if (pf.getState() === "user_fold") pf.getFlipController()?.stopMove();
+      },
     }),
     [turn],
   );
@@ -127,6 +182,7 @@ export const FlipBook = forwardRef<FlipBookHandle, FlipBookProps>(function FlipB
       pendingRef.current = null;
       instanceRef.current?.destroy();
       instanceRef.current = null;
+      useReaderStore.getState().setFlipping(false);
     },
     [bookKey],
   );
@@ -139,6 +195,8 @@ export const FlipBook = forwardRef<FlipBookHandle, FlipBookProps>(function FlipB
   const handleFlip = useCallback((e: { data: number }) => onFlipRef.current(e.data), []);
   const handleChangeState = useCallback(
     (e: { data: string }) => {
+      // RDR-5: crisp rendering waits until the page has settled.
+      useReaderStore.getState().setFlipping(e.data === "flipping" || e.data === "user_fold");
       if (e.data !== "read" || !pendingRef.current) return;
       const dir = pendingRef.current;
       pendingRef.current = null;
@@ -152,16 +210,30 @@ export const FlipBook = forwardRef<FlipBookHandle, FlipBookProps>(function FlipB
     [pageCount],
   );
 
+  // One LRU of rendered canvases per document and page size (Memory NFR: max 6).
+  const cache = useMemo(
+    () => new PageCache<number, CachedPage>(MAX_RENDERED_PAGES, (_page, entry) => releaseCanvas(entry.canvas)),
+    // A new page size needs new renders; the cache only depends on these.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [doc, pageWidth, pageHeight],
+  );
+  useEffect(() => () => cache.clear(), [cache]);
+
   const context = useMemo<PageContextValue>(
-    () => ({ doc, width: pageWidth, height: pageHeight, pixelRatio }),
-    [doc, pageWidth, pageHeight, pixelRatio],
+    () => ({ doc, width: pageWidth, height: pageHeight, pixelRatio, cache }),
+    [doc, pageWidth, pageHeight, pixelRatio, cache],
   );
 
   return (
     <PageContext.Provider value={context}>
       <div
+        ref={bookRef}
         className="pt-book"
         data-layout={layout}
+        data-animation={animation}
+        onAnimationEnd={(e) => {
+          if (e.currentTarget === e.target) delete e.currentTarget.dataset.slide;
+        }}
         style={{ width: layout === "spread" ? pageWidth * 2 : pageWidth, height: pageHeight }}
       >
         <HTMLFlipBook
@@ -185,9 +257,9 @@ export const FlipBook = forwardRef<FlipBookHandle, FlipBookProps>(function FlipB
           autoSize={false}
           mobileScrollSupport={false}
           clickEventForward={true}
-          useMouseEvents={true}
+          useMouseEvents={curlInput}
           swipeDistance={30}
-          showPageCorners={true}
+          showPageCorners={curlInput}
           disableFlipByClick={true}
           renderOnlyPageLengthChange={true}
           onInit={handleInit}

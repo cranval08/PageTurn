@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseLayout, fitPageSize, pageAnnouncement, pageLabel, spreadLeftIndex, stageMargin } from "../../src/lib/layout";
+import { chooseLayout, chromeInset, fitPageSize, pageAnnouncement, pageLabel, spreadLeftIndex, stageMargin } from "../../src/lib/layout";
 
 describe("chooseLayout (RDR-2)", () => {
   it("uses a spread on landscape viewports at least 900 px wide", () => {
@@ -46,6 +46,13 @@ describe("fitPageSize", () => {
     const s = fitPageSize("single", 0, 0, letter, 16);
     expect(s.width).toBeGreaterThan(0);
     expect(s.height).toBeGreaterThan(0);
+  });
+});
+
+describe("chromeInset", () => {
+  it("keeps the book clear of the toolbars on larger screens, full-bleed on phones", () => {
+    expect(chromeInset(412)).toBe(0);
+    expect(chromeInset(1280)).toBe(60);
   });
 });
 

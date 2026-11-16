@@ -6,6 +6,7 @@ import { isGoogleConfigured } from "../lib/google/config";
 import { useAuth } from "../store/auth";
 import { clearCache, storageUsage, type StorageUsage } from "../lib/db/books";
 import { formatBytes } from "../lib/format";
+import type { Settings } from "../lib/db/schema";
 import type { LayoutMode } from "../lib/layout";
 import { useSettings } from "../store/settings";
 
@@ -15,8 +16,15 @@ const LAYOUTS: { value: LayoutMode; label: string; hint: string }[] = [
   { value: "spread", label: "Spread", hint: "Always two pages side by side" },
 ];
 
+const ANIMATIONS: { value: Settings["animation"]; label: string; hint: string }[] = [
+  { value: "curl", label: "Curl", hint: "A realistic page curl; drag a corner or swipe" },
+  { value: "slide", label: "Slide", hint: "A short slide, gentler on the eyes" },
+  { value: "none", label: "None", hint: "Pages change instantly (default when your device asks for reduced motion)" },
+];
+
 export default function SettingsPage() {
   const layout = useSettings((s) => s.layout);
+  const animation = useSettings((s) => s.animation);
   const update = useSettings((s) => s.update);
   const user = useAuth((s) => s.user);
   const signOut = useAuth((s) => s.signOut);
@@ -49,6 +57,28 @@ export default function SettingsPage() {
                   value={opt.value}
                   checked={layout === opt.value}
                   onChange={() => update({ layout: opt.value })}
+                  className="h-5 w-5 accent-accent"
+                />
+                <span>
+                  <span className="block font-medium">{opt.label}</span>
+                  <span className="block text-sm text-ink-muted">{opt.hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <fieldset className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5">
+          <legend className="float-left mb-3 font-serif text-lg">Page turn</legend>
+          <div className="clear-both grid gap-2">
+            {ANIMATIONS.map((opt) => (
+              <label key={opt.value} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-2 hover:bg-paper">
+                <input
+                  type="radio"
+                  name="animation"
+                  value={opt.value}
+                  checked={animation === opt.value}
+                  onChange={() => update({ animation: opt.value })}
                   className="h-5 w-5 accent-accent"
                 />
                 <span>

@@ -1,45 +1,53 @@
 import type { PDFDocumentProxy } from "pdfjs-dist";
 
-export interface RenderHandle {
-  promise: Promise<void>;
+export interface RenderHandle<T> {
+  promise: Promise<T>;
   cancel(): void;
 }
 
+export class RenderCancelled extends Error {
+  constructor() {
+    super("Render cancelled");
+    this.name = "RenderCancelled";
+  }
+}
+
 /**
- * RDR-1: draw one page into `canvas` so it fills `cssWidth` CSS px at the given
- * pixel ratio. Draws offscreen first so the visible canvas never flashes blank.
+ * RDR-1/RDR-5: draw one page into a NEW canvas sized `cssWidth` CSS px at the given
+ * pixel ratio. The canvas is only shown once complete, so no blank frames.
+ * Rejects with RenderCancelled if cancelled.
  */
-export function renderPageToCanvas(
+export function renderPageCanvas(
   doc: PDFDocumentProxy,
   pageNumber: number,
-  canvas: HTMLCanvasElement,
   cssWidth: number,
   pixelRatio: number,
-): RenderHandle {
+): RenderHandle<HTMLCanvasElement> {
   let cancelled = false;
   let task: { cancel(): void } | null = null;
+  const canvas = document.createElement("canvas");
 
   const promise = (async () => {
     const page = await doc.getPage(pageNumber);
-    if (cancelled) return;
+    if (cancelled) throw new RenderCancelled();
     const base = page.getViewport({ scale: 1 });
     const viewport = page.getViewport({ scale: (cssWidth * pixelRatio) / base.width });
-    const scratch = document.createElement("canvas");
-    scratch.width = Math.floor(viewport.width);
-    scratch.height = Math.floor(viewport.height);
-    const renderTask = page.render({ canvas: scratch, viewport });
+    canvas.width = Math.max(1, Math.floor(viewport.width));
+    canvas.height = Math.max(1, Math.floor(viewport.height));
+    const renderTask = page.render({ canvas, viewport });
     task = renderTask;
     try {
       await renderTask.promise;
     } catch (err) {
-      if ((err as { name?: string }).name === "RenderingCancelledException") return;
+      canvas.width = canvas.height = 0;
+      if ((err as { name?: string }).name === "RenderingCancelledException") throw new RenderCancelled();
       throw err;
     }
-    if (cancelled) return;
-    canvas.width = scratch.width;
-    canvas.height = scratch.height;
-    canvas.getContext("2d")?.drawImage(scratch, 0, 0);
-    scratch.width = scratch.height = 0; // release the scratch bitmap
+    if (cancelled) {
+      canvas.width = canvas.height = 0;
+      throw new RenderCancelled();
+    }
+    return canvas;
   })();
 
   return {
@@ -49,4 +57,10 @@ export function renderPageToCanvas(
       task?.cancel();
     },
   };
+}
+
+/** Release a canvas's backing store promptly (iOS Safari keeps it otherwise). */
+export function releaseCanvas(canvas: HTMLCanvasElement): void {
+  canvas.remove();
+  canvas.width = canvas.height = 0;
 }

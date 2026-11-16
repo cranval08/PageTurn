@@ -3,10 +3,18 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import type { Settings } from "../lib/db/schema";
 import { idbStateStorage } from "../lib/db/settingsStorage";
 
+/** RDR-4: page-turn animation is off by default when the OS asks for reduced motion. */
+export function defaultAnimation(prefersReducedMotion: boolean): Settings["animation"] {
+  return prefersReducedMotion ? "none" : "curl";
+}
+
+const prefersReducedMotion = (): boolean =>
+  typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 export const DEFAULT_SETTINGS: Settings = {
   layout: "auto",
   theme: "light",
-  animation: "curl",
+  animation: defaultAnimation(prefersReducedMotion()),
   sound: false,
 };
 

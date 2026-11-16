@@ -16,6 +16,18 @@ export function stageMargin(viewportWidth: number): number {
   return viewportWidth < PHONE_MAX_WIDTH ? 0 : 16;
 }
 
+/** Height of the reader's top and bottom bars (44 px controls + padding). */
+export const BAR_HEIGHT = 60;
+
+/**
+ * Space kept free above and below the book. With a mouse, moving to a page corner
+ * re-shows the toolbar, so on larger screens the book fits between the bars and
+ * they never cover its corners. Phones stay full-bleed (bars overlay and auto-hide).
+ */
+export function chromeInset(viewportWidth: number): number {
+  return viewportWidth < PHONE_MAX_WIDTH ? 0 : BAR_HEIGHT;
+}
+
 /**
  * In a spread the cover (index 0) sits alone on the right, then pairs [1,2], [3,4]…
  * Returns the left index of the spread that contains `index`.

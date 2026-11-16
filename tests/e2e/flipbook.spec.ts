@@ -9,7 +9,7 @@ async function openSample(page: Page) {
   await page.goto("/");
   await page.getByTestId("file-input").setInputFiles(SAMPLE);
   await expect(page).toHaveURL(/\/read\//);
-  await expect(page.locator('[data-page="1"] canvas[data-rendered="true"]')).toBeVisible();
+  await expect(page.locator('[data-page="1"][data-rendered="true"]')).toBeVisible();
 }
 
 const indicator = (page: Page) => page.getByTestId("page-indicator");
@@ -50,7 +50,7 @@ test.describe("Phase 1: local PDF flipbook", () => {
     await page.goto("/");
     const started = Date.now();
     await page.getByTestId("file-input").setInputFiles(SAMPLE);
-    await expect(page.locator('[data-page="1"] canvas[data-rendered="true"]')).toBeVisible({ timeout: 2000 });
+    await expect(page.locator('[data-page="1"][data-rendered="true"]')).toBeVisible({ timeout: 2000 });
     const elapsed = Date.now() - started;
     test.info().annotations.push({ type: "first-page-ms", description: String(elapsed) });
     expect(elapsed).toBeLessThan(2000);
@@ -96,10 +96,16 @@ test.describe("Phase 1: local PDF flipbook", () => {
     expect(afterNext).toMatch(/^2(–3)? \/ 50$/);
     await page.waitForTimeout(800);
 
+    // The bar may already have auto-hidden (RDR-7), so check that a centre tap flips its state.
+    const bar = page.getByTestId("top-bar");
+    const before = await bar.getAttribute("data-visible");
+    const after = before === "true" ? "false" : "true";
     await tap(Math.round(vp.width / 2));
-    await expect(page.locator("header.reader-bar")).toHaveClass(/opacity-0/);
+    await expect(bar).toHaveAttribute("data-visible", after);
+    await page.waitForTimeout(400); // further apart than a double-tap (which zooms)
     await tap(Math.round(vp.width / 2));
-    await expect(page.locator("header.reader-bar")).toHaveClass(/opacity-100/);
+    await expect(bar).toHaveAttribute("data-visible", before!);
+    await expect(page.getByTestId("stage")).toHaveAttribute("data-zoom", "100");
   });
 
   test("RDR-3: dragging the bottom-right corner turns the page", async ({ page, isMobile }) => {
@@ -145,7 +151,7 @@ test.describe("Phase 1: local PDF flipbook", () => {
     await page.setViewportSize({ width: 899, height: 800 });
     await expect(page.locator(".pt-book")).toHaveAttribute("data-layout", "single");
     await expect(indicator(page)).toHaveText("6 / 50");
-    await expect(page.locator('[data-page="6"] canvas[data-rendered="true"]')).toBeVisible();
+    await expect(page.locator('[data-page="6"][data-rendered="true"]')).toBeVisible();
     // The visible page really is page 6, not just the label.
     const p6 = await page.locator('[data-page="6"]').boundingBox();
     expect(p6 && p6.width > 100).toBeTruthy();
