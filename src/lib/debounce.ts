@@ -2,6 +2,8 @@ export interface Debounced<A extends unknown[]> {
   call(...args: A): void;
   /** Run the pending call now, if any. */
   flush(): void;
+  /** Arguments of the call still waiting to run, if any. */
+  pending(): A | null;
   cancel(): void;
 }
 
@@ -30,5 +32,6 @@ export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: numb
       timer = undefined;
       pending = null;
     },
+    pending: () => pending,
   };
 }

@@ -16,6 +16,12 @@ const LAYOUTS: { value: LayoutMode; label: string; hint: string }[] = [
   { value: "spread", label: "Spread", hint: "Always two pages side by side" },
 ];
 
+const THEMES: { value: Settings["theme"]; label: string; hint: string }[] = [
+  { value: "light", label: "Light", hint: "Off-white paper" },
+  { value: "sepia", label: "Sepia", hint: "Warm tones, easier on the eyes" },
+  { value: "dark", label: "Dark", hint: "For night study: pages are dimmed, never inverted, so images look right" },
+];
+
 const ANIMATIONS: { value: Settings["animation"]; label: string; hint: string }[] = [
   { value: "curl", label: "Curl", hint: "A realistic page curl; drag a corner or swipe" },
   { value: "slide", label: "Slide", hint: "A short slide, gentler on the eyes" },
@@ -25,6 +31,7 @@ const ANIMATIONS: { value: Settings["animation"]; label: string; hint: string }[
 export default function SettingsPage() {
   const layout = useSettings((s) => s.layout);
   const animation = useSettings((s) => s.animation);
+  const theme = useSettings((s) => s.theme);
   const update = useSettings((s) => s.update);
   const user = useAuth((s) => s.user);
   const signOut = useAuth((s) => s.signOut);
@@ -46,7 +53,7 @@ export default function SettingsPage() {
       </header>
 
       <main className="mx-auto max-w-2xl space-y-8 px-4 pb-16">
-        <fieldset className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5">
+        <fieldset className="rounded-xl bg-surface p-5 shadow-sm ring-1 ring-ink/10">
           <legend className="float-left mb-3 font-serif text-lg">Page layout</legend>
           <div className="clear-both grid gap-2">
             {LAYOUTS.map((opt) => (
@@ -68,7 +75,29 @@ export default function SettingsPage() {
           </div>
         </fieldset>
 
-        <fieldset className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5">
+        <fieldset className="rounded-xl bg-surface p-5 shadow-sm ring-1 ring-ink/10">
+          <legend className="float-left mb-3 font-serif text-lg">Theme</legend>
+          <div className="clear-both grid gap-2">
+            {THEMES.map((opt) => (
+              <label key={opt.value} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-2 hover:bg-paper">
+                <input
+                  type="radio"
+                  name="theme"
+                  value={opt.value}
+                  checked={theme === opt.value}
+                  onChange={() => update({ theme: opt.value })}
+                  className="h-5 w-5 accent-accent"
+                />
+                <span>
+                  <span className="block font-medium">{opt.label}</span>
+                  <span className="block text-sm text-ink-muted">{opt.hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <fieldset className="rounded-xl bg-surface p-5 shadow-sm ring-1 ring-ink/10">
           <legend className="float-left mb-3 font-serif text-lg">Page turn</legend>
           <div className="clear-both grid gap-2">
             {ANIMATIONS.map((opt) => (
@@ -91,7 +120,7 @@ export default function SettingsPage() {
         </fieldset>
 
         {isGoogleConfigured() && (
-          <section aria-labelledby="account-heading" className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5">
+          <section aria-labelledby="account-heading" className="rounded-xl bg-surface p-5 shadow-sm ring-1 ring-ink/10">
             <h2 id="account-heading" className="font-serif text-lg">
               Google account
             </h2>
@@ -115,7 +144,7 @@ export default function SettingsPage() {
           </section>
         )}
 
-        <section aria-labelledby="storage-heading" className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5">
+        <section aria-labelledby="storage-heading" className="rounded-xl bg-surface p-5 shadow-sm ring-1 ring-ink/10">
           <h2 id="storage-heading" className="font-serif text-lg">
             Storage
           </h2>

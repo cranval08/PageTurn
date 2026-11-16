@@ -27,7 +27,9 @@ function Harness({ onGoTo = vi.fn() }: { onGoTo?: (p: number) => void }) {
         onZoomIn={vi.fn()}
         onZoomOut={vi.fn()}
         onGoTo={onGoTo}
-        onOpenSettings={vi.fn()}
+        onOpenPanel={vi.fn()}
+        bookmarked={false}
+        onToggleBookmark={vi.fn()}
         fullscreen={{ supported: true, active: false, toggle: vi.fn() }}
         onActivity={chrome.show}
         onPinnedChange={setPinned}

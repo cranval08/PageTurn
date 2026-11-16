@@ -63,7 +63,7 @@ export function Menu({ trigger, label, align = "right", children }: MenuProps) {
           id={id}
           role="menu"
           aria-label={label}
-          className={`absolute top-full z-40 mt-2 min-w-56 rounded-lg bg-white py-1 shadow-xl ring-1 ring-black/10 ${
+          className={`absolute top-full z-40 mt-2 min-w-56 rounded-lg bg-surface py-1 shadow-xl ring-1 ring-ink/15 ${
             align === "right" ? "right-0" : "left-0"
           }`}
         >

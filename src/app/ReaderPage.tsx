@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { FlipBook, type FlipBookHandle } from "../components/FlipBook";
+import { BookmarksPanel } from "../components/BookmarksPanel";
+import { OutlinePanel } from "../components/OutlinePanel";
 import { ReaderSettingsSheet } from "../components/ReaderSettingsSheet";
-import { Toolbar } from "../components/Toolbar";
+import { ThumbnailPanel } from "../components/ThumbnailPanel";
+import { Toolbar, type ReaderPanel } from "../components/Toolbar";
 import { ZoomLayer, type ZoomLayerHandle } from "../components/ZoomLayer";
 import { getBook, getBookFile, markOpened } from "../lib/db/books";
-import { getProgress, savePage } from "../lib/db/progress";
+import { importDriveFile } from "../lib/addDriveBook";
+import { applyPendingProgress, getProgress, savePage, stashPendingProgress, toggleBookmark } from "../lib/db/progress";
+import { checkQuietly } from "../lib/driveUpdates";
 import type { Book } from "../lib/db/schema";
 import { debounce } from "../lib/debounce";
 import { keyToAction, type NavAction } from "../lib/input";
@@ -20,7 +25,9 @@ import {
   type Layout,
 } from "../lib/layout";
 import { openPdf, PdfOpenError, type PDFDocumentProxy } from "../lib/pdf/loader";
+import { visiblePages } from "../lib/pdf/renderPlan";
 import { MAX_ZOOM, MIN_ZOOM } from "../lib/zoom";
+import { useAuth } from "../store/auth";
 import { useReaderStore } from "../store/reader";
 import { useSettings } from "../store/settings";
 import { useAutoHide } from "./useAutoHide";
@@ -82,7 +89,9 @@ export default function ReaderPage() {
   const { bookId = "" } = useParams();
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [panel, setPanel] = useState<ReaderPanel | null>(null);
+  /** DRV-6: a newer Drive version is available / being downloaded / failed. */
+  const [update, setUpdate] = useState<null | { status: "available" | "updating" } | { status: "error"; message: string }>(null);
   const [goToOpen, setGoToOpen] = useState(false);
   const pageIndex = useReaderStore((s) => s.pageIndex);
   const settledZoom = useReaderStore((s) => s.settledZoom);
@@ -95,7 +104,8 @@ export default function ReaderPage() {
   layoutRef.current = layout;
   const bookRef = useRef<FlipBookHandle>(null);
   const zoomRef = useRef<ZoomLayerHandle>(null);
-  const chrome = useAutoHide(settingsOpen || goToOpen);
+  const bookmarks = useReaderStore((s) => s.bookmarks);
+  const chrome = useAutoHide(panel !== null || goToOpen);
   const fullscreen = useFullscreen();
 
   useEffect(() => {
@@ -113,27 +123,37 @@ export default function ReaderPage() {
   );
   useEffect(() => {
     const flush = () => saver.flush();
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") flush();
+    // Leaving the page (reload, tab closed, app backgrounded): an async IndexedDB
+    // write may be cut off, so also stash the pending page synchronously.
+    const leave = () => {
+      const pending = saver.pending();
+      if (pending) stashPendingProgress(bookId, pending[0]);
+      flush();
     };
-    window.addEventListener("pagehide", flush);
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") leave();
+    };
+    window.addEventListener("pagehide", leave);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("pagehide", leave);
       document.removeEventListener("visibilitychange", onVisibility);
       flush();
     };
-  }, [saver]);
+  }, [saver, bookId]);
 
   // Load the book from IndexedDB, restore progress, open the PDF.
   useEffect(() => {
     let cancelled = false;
     let doc: PDFDocumentProxy | null = null;
     setLoad({ status: "loading" });
+    setUpdate(null);
     const store = useReaderStore.getState();
+    store.setBookmarks([]);
     store.setSettledZoom(1);
     store.setFlipping(false);
     (async () => {
+      await applyPendingProgress();
       const book = await getBook(bookId);
       const data = book ? await getBookFile(bookId) : undefined;
       if (cancelled) return;
@@ -141,6 +161,7 @@ export default function ReaderPage() {
         setLoad({ status: "missing", book });
         return;
       }
+      void markOpened(bookId); // LIB-2 "last opened", even if the reader leaves before the PDF loads
       try {
         const [progress, opened] = await Promise.all([getProgress(bookId), openPdf(data)]);
         doc = opened;
@@ -150,8 +171,12 @@ export default function ReaderPage() {
         const start = Math.min(Math.max((progress?.page ?? 1) - 1, 0), doc.numPages - 1);
         store.setPageCount(doc.numPages);
         store.setPageIndex(start);
-        void markOpened(bookId);
+        store.setBookmarks(progress?.bookmarks ?? []);
         setLoad({ status: "ready", book, doc, aspect: vp.width / vp.height });
+        // DRV-6: quietly ask Drive whether a newer version exists (only if already signed in).
+        void checkQuietly(book).then((remote) => {
+          if (!cancelled && remote) setUpdate({ status: "available" });
+        });
       } catch (err) {
         if (cancelled) return;
         setLoad({
@@ -197,7 +222,44 @@ export default function ReaderPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [turn]);
 
-  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const closePanel = useCallback(() => setPanel(null), []);
+
+  /** Jump to a 0-based page (go to page, scrubber, contents, thumbnails, links). */
+  const goToIndex = useCallback((index: number) => {
+    zoomRef.current?.reset();
+    bookRef.current?.goTo(index);
+  }, []);
+
+  // RDR-12: in-page PDF links navigate through the store.
+  useEffect(() => {
+    useReaderStore.getState().setNavigate(goToIndex);
+    return () => useReaderStore.getState().setNavigate(() => {});
+  }, [goToIndex]);
+
+  /** RDR-14: toggle a bookmark (1-based page) and persist it. */
+  const toggleBookmarkAt = useCallback(
+    (page: number) => {
+      const current = pageToSave(useReaderStore.getState().pageIndex, layoutRef.current);
+      void toggleBookmark(bookId, page, current).then((marks) => useReaderStore.getState().setBookmarks(marks));
+    },
+    [bookId],
+  );
+
+  /** DRV-6: download the newer version (from a click: may open the Google popup), then reopen. */
+  const runUpdate = () => {
+    if (load.status !== "ready") return;
+    const book = load.book;
+    const tokenPromise = useAuth.getState().driveToken();
+    setUpdate({ status: "updating" });
+    saver.flush();
+    tokenPromise
+      .then((token) => importDriveFile({ id: book.id, name: `${book.title}.pdf`, mimeType: "application/pdf" }, token, () => {}))
+      .then(() => {
+        setUpdate(null);
+        setAttempt((a) => a + 1); // reopen the updated file at the saved page
+      })
+      .catch((err) => setUpdate({ status: "error", message: err instanceof Error ? err.message : "The update failed. Try again." }));
+  };
 
   if (load.status === "missing") {
     return (
@@ -273,11 +335,10 @@ export default function ReaderPage() {
         canZoomOut={zoomed}
         onZoomIn={() => zoomRef.current?.zoomIn()}
         onZoomOut={() => zoomRef.current?.zoomOut()}
-        onGoTo={(page) => {
-          zoomRef.current?.reset();
-          bookRef.current?.goTo(page - 1);
-        }}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onGoTo={(page) => goToIndex(page - 1)}
+        onOpenPanel={setPanel}
+        bookmarked={bookmarks.includes(pageToSave(pageIndex, layout))}
+        onToggleBookmark={() => toggleBookmarkAt(pageToSave(pageIndex, layout))}
         fullscreen={fullscreen}
         onActivity={chrome.show}
         onPinnedChange={setGoToOpen}
@@ -293,7 +354,69 @@ export default function ReaderPage() {
         </button>
       )}
 
-      {settingsOpen && <ReaderSettingsSheet onClose={closeSettings} />}
+      {update && (
+        <div
+          role={update.status === "error" ? "alert" : "status"}
+          className="absolute top-16 left-1/2 z-30 flex w-[min(92vw,30rem)] -translate-x-1/2 flex-wrap items-center gap-2 rounded-xl bg-surface p-3 text-ink shadow-xl ring-1 ring-ink/15"
+          data-testid="update-banner"
+        >
+          <p className="min-w-0 flex-1 text-sm">
+            {update.status === "available" && "A newer version is in Drive. Update?"}
+            {update.status === "updating" && "Downloading the newer version…"}
+            {update.status === "error" && update.message}
+          </p>
+          {update.status !== "updating" && (
+            <>
+              <button type="button" className="btn-primary min-h-10 px-3 text-sm" onClick={runUpdate}>
+                {update.status === "error" ? "Retry" : "Update"}
+              </button>
+              <button type="button" className="btn-secondary min-h-10 px-3 text-sm" onClick={() => setUpdate(null)}>
+                Not now
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {panel === "settings" && <ReaderSettingsSheet onClose={closePanel} />}
+      {panel === "contents" && load.status === "ready" && (
+        <OutlinePanel
+          doc={load.doc}
+          pageIndex={visiblePages(pageIndex, layout, pageCount).at(-1) ?? pageIndex}
+          onClose={closePanel}
+          onGo={(index) => {
+            closePanel();
+            goToIndex(index);
+          }}
+        />
+      )}
+      {panel === "thumbnails" && load.status === "ready" && (
+        <ThumbnailPanel
+          doc={load.doc}
+          pageCount={pageCount}
+          aspect={load.aspect}
+          visible={visiblePages(pageIndex, layout, pageCount)}
+          onClose={closePanel}
+          onGo={(index) => {
+            closePanel();
+            goToIndex(index);
+          }}
+        />
+      )}
+      {panel === "bookmarks" && load.status === "ready" && (
+        <BookmarksPanel
+          bookmarks={bookmarks}
+          pageCount={pageCount}
+          currentPage={pageToSave(pageIndex, layout)}
+          onToggleCurrent={() => toggleBookmarkAt(pageToSave(pageIndex, layout))}
+          onRemove={toggleBookmarkAt}
+          onGo={(page) => {
+            closePanel();
+            goToIndex(page - 1);
+          }}
+          onClose={closePanel}
+        />
+      )}
 
       {load.status === "ready" && (
         <p className="sr-only" aria-live="polite" data-testid="page-announcement">

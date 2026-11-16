@@ -19,7 +19,7 @@ export function Avatar({ name, picture, size = 32 }: { name: string; picture?: s
   return (
     <span
       aria-hidden="true"
-      className="inline-flex items-center justify-center rounded-full bg-accent font-medium text-white"
+      className="inline-flex items-center justify-center rounded-full bg-accent font-medium text-on-accent"
       style={{ width: size, height: size }}
     >
       {name.trim().charAt(0).toUpperCase() || "?"}
@@ -63,7 +63,7 @@ export function AccountButton() {
         <button
           {...props}
           type="button"
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full hover:bg-black/5"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-full hover:bg-ink/10"
           aria-label={`Google account: ${user.name}`}
           data-testid="account-button"
         >

@@ -78,6 +78,8 @@ export interface DriveFileMock {
   name: string;
   mimeType: string;
   body: Buffer;
+  /** Drive's modifiedTime (DRV-6); defaults to DEFAULT_MODIFIED_TIME. */
+  modifiedTime?: string;
   /** Respond with this HTTP status to downloads (alt=media) this many times. */
   failDownloads?: { status: number; times: number };
 }
@@ -88,6 +90,8 @@ export interface DriveMock {
   rejectedTokens: Set<string>;
   downloads: string[];
 }
+
+export const DEFAULT_MODIFIED_TIME = "2026-11-10T09:00:00.000Z";
 
 export const USER = { name: "Test Student", email: "student@example.com", picture: "https://lh3.googleusercontent.com/a/test-avatar" };
 
@@ -127,7 +131,7 @@ export async function mockGoogle(page: Page): Promise<DriveMock> {
       return route.fulfill({ body: file.body, headers: { "Content-Type": file.mimeType, "Content-Length": String(file.body.length) } });
     }
     return route.fulfill({
-      json: { id, name: file.name, mimeType: file.mimeType, size: String(file.body.length), modifiedTime: "2026-11-10T09:00:00.000Z" },
+      json: { id, name: file.name, mimeType: file.mimeType, size: String(file.body.length), modifiedTime: file.modifiedTime ?? DEFAULT_MODIFIED_TIME },
     });
   });
 

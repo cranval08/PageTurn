@@ -1,27 +1,11 @@
-import { createContext, forwardRef, useContext, useEffect, useRef, useState } from "react";
-import type { PDFDocumentProxy } from "../lib/pdf/loader";
-import type { PageCache } from "../lib/pdf/pageCache";
+import { forwardRef, useContext, useEffect, useRef, useState } from "react";
 import { desiredQuality, LOW_PIXEL_RATIO, renderPixelRatio, type Quality } from "../lib/pdf/renderPlan";
 import { RenderCancelled, renderPageCanvas, type RenderHandle } from "../lib/pdf/renderPage";
 import { useReaderStore } from "../store/reader";
+import { LinkLayer } from "./LinkLayer";
+import { PageContext, type CachedPage } from "./pageContext";
 
-export interface CachedPage {
-  canvas: HTMLCanvasElement;
-  quality: Exclude<Quality, "none">;
-  pixelRatio: number;
-}
-
-export interface PageContextValue {
-  doc: PDFDocumentProxy;
-  width: number;
-  height: number;
-  /** Device pixel ratio (capped). */
-  pixelRatio: number;
-  /** Shared LRU of rendered canvases (max 6, Memory NFR). */
-  cache: PageCache<number, CachedPage>;
-}
-
-export const PageContext = createContext<PageContextValue | null>(null);
+export { PageContext, type CachedPage, type PageContextValue } from "./pageContext";
 
 interface PdfPageProps {
   index: number;
@@ -40,6 +24,7 @@ export const PdfPage = forwardRef<HTMLDivElement, PdfPageProps>(function PdfPage
   const ctx = useContext(PageContext);
   const quality = useReaderStore((s) => desiredQuality(index, s.pageIndex, s.layout, s.pageCount, !s.flipping));
   const zoom = useReaderStore((s) => (quality === "high" ? s.settledZoom : 1));
+  const bookmarked = useReaderStore((s) => s.bookmarks.includes(index + 1));
   const hostRef = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState<Quality>("none");
 
@@ -94,14 +79,16 @@ export const PdfPage = forwardRef<HTMLDivElement, PdfPageProps>(function PdfPage
   return (
     <div
       ref={ref}
-      className="pt-page bg-white"
+      className="pt-page pt-paper bg-white"
       data-page={index + 1}
       data-rendered={shown !== "none" ? "true" : "false"}
       data-quality={shown}
-      role="img"
-      aria-label={`Page ${index + 1}`}
+      role="group"
+      aria-label={`Page ${index + 1}${bookmarked ? ", bookmarked" : ""}`}
     >
       <div ref={hostRef} className="pt-page-host" />
+      {quality !== "none" && <LinkLayer index={index} />}
+      {bookmarked && <span className="pt-ribbon" aria-hidden="true" data-testid="bookmark-ribbon" />}
       {shown === "none" && (
         <div className="pt-page-skeleton" aria-hidden="true">
           <div className="pt-spinner" />

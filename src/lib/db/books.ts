@@ -1,4 +1,4 @@
-import { whenProgressSaved } from "./progress";
+import { applyPendingProgress, trackWrite, whenProgressSaved } from "./progress";
 import { db, type Book, type Progress } from "./schema";
 
 export interface NewBook {
@@ -36,7 +36,7 @@ export async function getBookFile(id: string): Promise<Blob | undefined> {
 }
 
 export function markOpened(id: string, at = Date.now()): Promise<number> {
-  return db.books.update(id, { lastOpenedAt: at });
+  return trackWrite(db.books.update(id, { lastOpenedAt: at }));
 }
 
 /** LIB-3: delete the local copy, its bytes and its progress. Never touches Drive. */
@@ -57,6 +57,7 @@ export interface LibraryData {
 }
 
 export async function loadLibrary(): Promise<LibraryData> {
+  await applyPendingProgress();
   await whenProgressSaved();
   const [books, progress, cachedIds] = await Promise.all([
     db.books.orderBy("lastOpenedAt").reverse().toArray(),

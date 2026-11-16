@@ -4,7 +4,7 @@ Read PDFs as a book. PageTurn is an installable web app (PWA) that opens PDFs fr
 
 No backend, no database, no analytics: everything runs and is stored in your browser.
 
-> **Status:** Phases 1–4 of 6 done (MVP: local flipbook, library and progress, Google Drive, reader polish and offline install). See [`PRD.md`](PRD.md) for the full spec and roadmap.
+> **Status:** Phases 1–5 of 6 done (everything except cross-device sync and deployment). See [`PRD.md`](PRD.md) for the full spec and roadmap.
 
 ## Features
 
@@ -12,10 +12,14 @@ No backend, no database, no analytics: everything runs and is stored in your bro
 
 - Sign in with Google and pick one or more PDFs from Google Drive (Recent, My Drive, Shared with me), with download progress for large files
 - Open a PDF from your device with the file picker or by dragging it onto the page (no sign-in needed)
-- Library of covers with reading progress ("p. 84 of 312 · 27%"), a Continue reading strip, and Remove from library
+- Library of covers with reading progress ("p. 84 of 312 · 27%"), a Continue reading strip, search by title, sort by last opened / title / date added, and Remove from library
 - Reopens every book at the page where you stopped; books are saved on the device and open without internet
 - Zoom 100–400% by pinch, double-tap, Ctrl/Cmd + scroll or the +/− buttons; while zoomed, swipes pan instead of turning
 - Toolbar that hides itself after 3 seconds (tap the centre to bring it back), Go to page, full screen
+- Page scrubber with a live page preview, table of contents from the PDF's outline, page thumbnails, and bookmarks
+- Links inside the PDF work: "see page 40" jumps there, web links open in a new tab
+- Light, Sepia and Dark themes for night study (Dark dims pages instead of inverting them, so photos and diagrams look right)
+- Drive books tell you when a newer version is in your Drive and update in one tap, keeping your page and bookmarks
 - Page turn animation: Curl, Slide or None (None by default if your device asks for reduced motion)
 - Sharp pages: a quick low-resolution render first, then a crisp one; only a few pages are kept in memory, so even 1,000-page PDFs stay smooth
 - Installable app that works offline: the app and every book you've opened load without internet
@@ -29,7 +33,6 @@ No backend, no database, no analytics: everything runs and is stored in your bro
 
 | Phase | Adds |
 | --- | --- |
-| 5 | Page scrubber, table of contents, thumbnails, PDF links, light/sepia/dark themes, bookmarks, library search |
 | 6 | Sync progress across devices through Google Drive, privacy page, deployment |
 
 ## Getting started

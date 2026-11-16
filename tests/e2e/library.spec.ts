@@ -77,6 +77,14 @@ test.describe("Phase 2: library, storage and progress", () => {
     await expect(page.getByTestId("book-progress")).toContainText(expected);
   });
 
+  test("PRG-1: reloading straight after a page turn keeps that page", async ({ page }) => {
+    await addSample(page);
+    await readTo(page, 6); // a left-hand page in both single and spread layouts
+    const text = await indicator(page).textContent();
+    await page.reload(); // well inside the 500 ms save delay
+    await expect(indicator(page)).toHaveText(text!);
+  });
+
   test("LIB-3/OFF-1: removing a book frees its blob (storage figure in settings)", async ({ page }) => {
     await addSample(page);
     await page.getByRole("link", { name: "Back to library" }).press("Enter") // focus shows the auto-hidden toolbar;

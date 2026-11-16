@@ -81,3 +81,15 @@ tests/unit/      *.test.ts(x)    tests/e2e/  *.spec.ts    tests/fixtures/  sampl
 - Toolbar (RDR-7): auto-hides after 3 s (`useAutoHide`), stays while go-to-page/settings are open; hidden bars stay focusable and focus shows them. Bar backgrounds are click-through. On screens ≥ 640 px the book fits between the bars (`chromeInset`), because mouse movement re-shows the bars over the page corners; phones stay full-bleed.
 - E2E: service workers are BLOCKED by default (they bypass `page.route` mocks); `tests/e2e/pwa.spec.ts` opts in. Tests reach auto-hidden controls via the keyboard (`.press("Enter")`/`.focus()`), like a keyboard user.
 - PWA: never auto-reload a reader; `UpdateToast` offers Reload. Precache includes the pdf.js worker (.mjs) so books open offline.
+
+## Navigation, themes, bookmarks (Phase 5)
+
+- Reader panels (contents, thumbnails, bookmarks, settings) all use `Panel` (right on desktop, bottom sheet on phones, Escape/outside closes, focus restored). One panel at a time; auto-hide waits while one is open.
+- PDF navigation lives in `src/lib/pdf/navigation.ts`: `destToPageIndex` (named/explicit/numeric dests), `loadOutline`, `loadPageLinks`. External URLs must pass `safeExternalUrl` (http/https/mailto only). pdf.js 6 has no `convertToViewportRectangle`: convert two corners.
+- In-page links are real `<button>`/`<a>` in `LinkLayer`; page-flip (`clickEventForward`) and ZoomLayer taps ignore `a, button, input` targets. When zoomed, ZoomLayer forwards taps to a `.pt-link` under the overlay. Links navigate via `useReaderStore().navigate`.
+- Themes: colours are tokens in `src/index.css` (`paper, surface, stage, ink, ink-muted, accent, on-accent, danger`), overridden by `:root[data-theme=…]`. Never use `bg-white`/`text-white`/`black` utilities for UI (the PDF page itself stays white). Page look: `--page-filter` on `.pt-paper` (dark = brightness dim, never invert) plus `--page-tint` multiplied over `.pt-page` (sepia cream). `ThemeSync` + a localStorage mirror (`applyThemeEarly`) avoid a flash.
+- Bookmarks: `Progress.bookmarks` (1-based, sorted), changed only via `toggleBookmark` (one transaction with the progress row). In a spread the bookmark is the left page.
+- Progress safety net: on `pagehide`/hidden the reader also stashes the pending page in localStorage (`stashPendingProgress`); `applyPendingProgress()` folds it in on the next library/reader load. `markOpened` and progress writes are tracked so `loadLibrary` never reads stale data.
+- Library sort is a per-device convenience in localStorage (`pageturn.librarySort`); search ignores case, accents and word order.
+- DRV-6: `checkQuietly` runs on reader open only if a token is already in memory (no popups without a click); the card menu's "Check Drive for update" may sign in. Updating re-imports via `importDriveFile`, keeping progress and bookmarks.
+- Fixture `outline-links.pdf` (outline + internal/external links) comes from `buildPdf` options `outline`, `links`, `label`. Beware `String.replace` with `$` in replacement strings when scripting edits (use split/join).

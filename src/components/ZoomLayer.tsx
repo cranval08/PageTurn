@@ -154,7 +154,15 @@ export const ZoomLayer = forwardRef<ZoomLayerHandle, ZoomLayerProps>(function Zo
       onDrag: ({ tap, pinching, cancel, delta: [dx, dy], swipe: [sx], xy: [x, y], event }) => {
         if (pinching) return cancel();
         if (tap) {
-          if ((event as PointerEvent).isPrimary !== false) handleTap(x, y);
+          if ((event as PointerEvent).isPrimary === false) return;
+          // RDR-12: taps on PDF links (and any control) are theirs, not tap zones.
+          if ((event.target as Element | null)?.closest?.("a, button, input")) return;
+          if (isZoomed(stateRef.current)) {
+            // The zoom overlay covers the page; forward a tap on a link underneath it.
+            const link = document.elementsFromPoint(x, y).find((el) => el.classList.contains("pt-link")) as HTMLElement | undefined;
+            if (link) return link.click();
+          }
+          handleTap(x, y);
           return;
         }
         const s = stateRef.current;

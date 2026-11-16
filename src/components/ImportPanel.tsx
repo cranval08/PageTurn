@@ -46,7 +46,7 @@ export function ImportPanel({ items, onRetry, onDismiss }: ImportPanelProps) {
     <section
       aria-label="Google Drive imports"
       data-testid="import-panel"
-      className="fixed inset-x-3 bottom-3 z-40 mx-auto max-w-md rounded-xl bg-white p-4 shadow-2xl ring-1 ring-black/10 sm:right-4 sm:left-auto sm:mx-0 sm:w-96"
+      className="fixed inset-x-3 bottom-3 z-40 mx-auto max-w-md rounded-xl bg-surface p-4 shadow-2xl ring-1 ring-ink/15 sm:right-4 sm:left-auto sm:mx-0 sm:w-96"
     >
       <div className="flex items-center gap-2">
         <h2 className="flex-1 font-medium" aria-live="polite">
@@ -70,7 +70,7 @@ export function ImportPanel({ items, onRetry, onDismiss }: ImportPanelProps) {
                     {item.file.name}
                   </p>
                   <p
-                    className={`text-xs ${item.status === "error" ? "text-red-800" : "text-ink-muted"}`}
+                    className={`text-xs ${item.status === "error" ? "text-danger" : "text-ink-muted"}`}
                     role={item.status === "error" ? "alert" : undefined}
                   >
                     {statusText(item)}

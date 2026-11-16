@@ -54,7 +54,7 @@ export function useDriveImport(onFinished: (added: Book[], autoOpen: boolean) =>
   );
 
   const start = useCallback(
-    (files: PickedFile[], token: string) => {
+    (files: PickedFile[], token: string, options: { autoOpen?: boolean } = {}) => {
       const fresh: ImportItem[] = files.map((file, i) => ({
         key: `${file.id}:${Date.now()}:${i}`,
         file,
@@ -63,7 +63,7 @@ export function useDriveImport(onFinished: (added: Book[], autoOpen: boolean) =>
         total: file.sizeBytes ?? 0,
       }));
       setItems(fresh);
-      void run(fresh, token, fresh.length === 1);
+      void run(fresh, token, options.autoOpen ?? fresh.length === 1);
     },
     [run],
   );

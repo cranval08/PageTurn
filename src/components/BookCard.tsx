@@ -10,6 +10,8 @@ interface BookCardProps {
   cached: boolean;
   onOpen(book: Book): void;
   onRemove(book: Book): void;
+  /** DRV-6: offered for Drive books. Called from a click. */
+  onCheckUpdate?(book: Book): void;
 }
 
 const LONG_PRESS_MS = 500;
@@ -35,7 +37,7 @@ export function SourceIcon({ source }: { source: Book["source"] }) {
 }
 
 /** LIB-1 card: cover, title (2 lines), source icon, progress bar; ⋮ menu or long-press (LIB-3). */
-export function BookCard({ book, page, cached, onOpen, onRemove }: BookCardProps) {
+export function BookCard({ book, page, cached, onOpen, onRemove, onCheckUpdate }: BookCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuId = useId();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -96,16 +98,16 @@ export function BookCard({ book, page, cached, onOpen, onRemove }: BookCardProps
         }}
         aria-label={`Open ${book.title}, ${progressLabel(page, book.pageCount)}`}
       >
-        <div className="relative aspect-[3/4] w-full overflow-hidden rounded-md bg-white shadow-md ring-1 ring-black/5 transition-transform group-hover:-translate-y-0.5 motion-reduce:transition-none">
+        <div className="relative aspect-[3/4] w-full overflow-hidden rounded-md bg-surface shadow-md ring-1 ring-ink/10 transition-transform group-hover:-translate-y-0.5 motion-reduce:transition-none">
           <img
             src={book.coverDataUrl}
             alt=""
-            className={`h-full w-full object-cover object-top ${cached ? "" : "opacity-50 grayscale"}`}
+            className={`pt-paper h-full w-full object-cover object-top ${cached ? "" : "opacity-50 grayscale"}`}
             decoding="async"
             loading="lazy"
           />
           {!cached && (
-            <span className="absolute inset-x-2 bottom-2 rounded bg-ink/80 px-2 py-1 text-center text-xs text-white">
+            <span className="absolute inset-x-2 bottom-2 rounded bg-black/75 px-2 py-1 text-center text-xs text-white">
               Not on this device
             </span>
           )}
@@ -123,7 +125,7 @@ export function BookCard({ book, page, cached, onOpen, onRemove }: BookCardProps
         <button
           ref={menuButtonRef}
           type="button"
-          className="-mr-3 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg text-ink-muted hover:bg-black/5"
+          className="-mr-3 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg text-ink-muted hover:bg-ink/10"
           aria-label={`More actions for ${book.title}`}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
@@ -150,7 +152,7 @@ export function BookCard({ book, page, cached, onOpen, onRemove }: BookCardProps
           id={menuId}
           role="menu"
           aria-label={`Actions for ${book.title}`}
-          className="absolute right-0 bottom-8 z-30 min-w-48 rounded-lg bg-white py-1 shadow-xl ring-1 ring-black/10"
+          className="absolute right-0 bottom-8 z-30 min-w-48 rounded-lg bg-surface py-1 shadow-xl ring-1 ring-ink/15"
         >
           <button
             type="button"
@@ -163,10 +165,23 @@ export function BookCard({ book, page, cached, onOpen, onRemove }: BookCardProps
           >
             Open
           </button>
+          {book.source === "drive" && onCheckUpdate && (
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={() => {
+                setMenuOpen(false);
+                onCheckUpdate(book);
+              }}
+            >
+              Check Drive for update
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
-            className="menu-item text-red-800"
+            className="menu-item text-danger"
             onClick={() => {
               setMenuOpen(false);
               onRemove(book);

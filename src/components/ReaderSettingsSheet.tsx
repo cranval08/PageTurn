@@ -1,12 +1,18 @@
-import { useEffect, useId, useRef } from "react";
 import { Link } from "react-router-dom";
 import type { Settings } from "../lib/db/schema";
 import { useSettings } from "../store/settings";
+import { Panel } from "./Panel";
 
 const LAYOUTS: { value: Settings["layout"]; label: string }[] = [
   { value: "auto", label: "Auto" },
   { value: "single", label: "Single" },
   { value: "spread", label: "Spread" },
+];
+
+const THEMES: { value: Settings["theme"]; label: string }[] = [
+  { value: "light", label: "Light" },
+  { value: "sepia", label: "Sepia" },
+  { value: "dark", label: "Dark" },
 ];
 
 const ANIMATIONS: { value: Settings["animation"]; label: string }[] = [
@@ -15,7 +21,7 @@ const ANIMATIONS: { value: Settings["animation"]; label: string }[] = [
   { value: "none", label: "None" },
 ];
 
-function Segmented<T extends string>(props: {
+export function Segmented<T extends string>(props: {
   legend: string;
   name: string;
   value: T;
@@ -25,7 +31,7 @@ function Segmented<T extends string>(props: {
   return (
     <fieldset>
       <legend className="mb-2 font-medium">{props.legend}</legend>
-      <div className="grid grid-flow-col auto-cols-fr gap-1 rounded-lg bg-ink/5 p-1">
+      <div className="grid auto-cols-fr grid-flow-col gap-1 rounded-lg bg-ink/5 p-1">
         {props.options.map((o) => (
           <label key={o.value} className="segment">
             <input
@@ -44,58 +50,23 @@ function Segmented<T extends string>(props: {
   );
 }
 
-/** Reader settings sheet ("Aa"): right panel on desktop, bottom sheet on phones. */
+/** Reader settings ("Aa"): layout, theme (RDR-13), page turn (RDR-4). */
 export function ReaderSettingsSheet({ onClose }: { onClose(): void }) {
   const layout = useSettings((s) => s.layout);
+  const theme = useSettings((s) => s.theme);
   const animation = useSettings((s) => s.animation);
   const update = useSettings((s) => s.update);
-  const titleId = useId();
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    panelRef.current?.querySelector<HTMLElement>("input:checked")?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      previous?.focus?.();
-    };
-  }, [onClose]);
 
   return (
-    <div
-      className="fixed inset-0 z-40 bg-black/25"
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="sheet absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-2xl bg-paper p-5 text-ink shadow-2xl sm:inset-y-0 sm:right-0 sm:left-auto sm:w-80 sm:rounded-none"
-        data-testid="reader-settings"
-      >
-        <div className="mb-4 flex items-center">
-          <h2 id={titleId} className="flex-1 font-serif text-xl">
-            Reading settings
-          </h2>
-          <button type="button" className="icon-btn" aria-label="Close settings" onClick={onClose}>
-            <span aria-hidden="true">✕</span>
-          </button>
-        </div>
-        <div className="space-y-5">
-          <Segmented legend="Page layout" name="reader-layout" value={layout} options={LAYOUTS} onChange={(v) => update({ layout: v })} />
-          <Segmented legend="Page turn" name="reader-animation" value={animation} options={ANIMATIONS} onChange={(v) => update({ animation: v })} />
-          <Link to="/settings" className="inline-flex min-h-11 items-center text-accent underline underline-offset-2">
-            All settings
-          </Link>
-        </div>
+    <Panel title="Reading settings" onClose={onClose} testId="reader-settings">
+      <div className="space-y-5">
+        <Segmented legend="Theme" name="reader-theme" value={theme} options={THEMES} onChange={(v) => update({ theme: v })} />
+        <Segmented legend="Page layout" name="reader-layout" value={layout} options={LAYOUTS} onChange={(v) => update({ layout: v })} />
+        <Segmented legend="Page turn" name="reader-animation" value={animation} options={ANIMATIONS} onChange={(v) => update({ animation: v })} />
+        <Link to="/settings" className="inline-flex min-h-11 items-center text-accent underline underline-offset-2">
+          All settings
+        </Link>
       </div>
-    </div>
+    </Panel>
   );
 }

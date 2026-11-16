@@ -31,7 +31,7 @@ export function GoToPage({ pageCount, currentPage, onGo, onClose }: GoToPageProp
 
   return (
     <form
-      className="flex w-64 flex-col gap-2 rounded-xl bg-paper p-4 text-ink shadow-2xl ring-1 ring-black/10"
+      className="flex w-64 flex-col gap-2 rounded-xl bg-paper p-4 text-ink shadow-2xl ring-1 ring-ink/15"
       aria-label="Go to page"
       noValidate // our message is clearer than the browser's validation bubble
       onSubmit={(e) => {
@@ -65,14 +65,14 @@ export function GoToPage({ pageCount, currentPage, onGo, onClose }: GoToPageProp
             setValue(e.target.value);
             setError(null);
           }}
-          className="min-h-11 w-full min-w-0 rounded-lg border border-ink/30 bg-white px-3 tabular-nums"
+          className="min-h-11 w-full min-w-0 rounded-lg border border-ink/30 bg-surface px-3 tabular-nums"
         />
         <button type="submit" className="btn-primary">
           Go
         </button>
       </div>
       {error && (
-        <p id={`${id}-error`} role="alert" className="text-sm text-red-800">
+        <p id={`${id}-error`} role="alert" className="text-sm text-danger">
           {error}
         </p>
       )}

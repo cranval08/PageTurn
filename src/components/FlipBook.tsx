@@ -7,7 +7,8 @@ import { PageCache } from "../lib/pdf/pageCache";
 import { releaseCanvas } from "../lib/pdf/renderPage";
 import { MAX_RENDERED_PAGES } from "../lib/pdf/renderPlan";
 import { useReaderStore } from "../store/reader";
-import { PageContext, PdfPage, type CachedPage, type PageContextValue } from "./PdfPage";
+import { PageContext, type CachedPage, type PageContextValue } from "./pageContext";
+import { PdfPage } from "./PdfPage";
 
 /**
  * page-flip 2.0.7 bug: flipPrev() starts the animation from a synthetic point at

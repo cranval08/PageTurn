@@ -13,6 +13,8 @@ import { progressLabel, progressPercent } from "../lib/format";
 import { AuthError, initAuth } from "../lib/google/auth";
 import { isGoogleConfigured } from "../lib/google/config";
 import { pickPdfs } from "../lib/google/picker";
+import { checkForDriveUpdate } from "../lib/driveUpdates";
+import { loadSort, saveSort, SORT_LABELS, sortAndFilter, type LibrarySort } from "../lib/librarySort";
 import { PdfOpenError } from "../lib/pdf/loader";
 import { useAuth } from "../store/auth";
 import { useDriveImport } from "./useDriveImport";
@@ -28,6 +30,9 @@ export default function LibraryPage() {
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [removing, setRemoving] = useState<Book | null>(null);
+  const [updating, setUpdating] = useState<Book | null>(null);
+  const [sort, setSort] = useState<LibrarySort>(loadSort);
+  const [query, setQuery] = useState("");
 
   const [openingDrive, setOpeningDrive] = useState(false);
   const authStatus = useAuth((s) => s.status);
@@ -162,7 +167,25 @@ export default function LibraryPage() {
 
   const pickFile = () => inputRef.current?.click();
   const books = library?.books ?? [];
-  const recent = books.length > CONTINUE_COUNT ? books.slice(0, CONTINUE_COUNT) : [];
+  // LIB-2: the strip always shows the most recently opened; the grid follows sort + search.
+  const recent = books.length > CONTINUE_COUNT && !query.trim() ? books.slice(0, CONTINUE_COUNT) : [];
+  const shown = sortAndFilter(books, sort, query);
+
+  /** DRV-6 from the card menu. Called from a click (may open the Google popup). */
+  const checkUpdate = (book: Book) => {
+    setMessage(null);
+    useAuth
+      .getState()
+      .driveToken()
+      .then((token) => checkForDriveUpdate(book, token))
+      .then((remote) => {
+        if (remote) setUpdating(book);
+        else setMessage(`"${book.title}" is up to date.`);
+      })
+      .catch((err) => {
+        if (!(err instanceof AuthError)) setMessage(err instanceof Error ? err.message : "Couldn't check Google Drive.");
+      });
+  };
 
   return (
     <div className="min-h-dvh bg-paper text-ink">
@@ -273,10 +296,10 @@ export default function LibraryPage() {
                     <button
                       type="button"
                       data-testid="continue-card"
-                      className="flex w-full items-center gap-3 rounded-lg bg-white p-2 text-left shadow-sm ring-1 ring-black/5 hover:shadow-md"
+                      className="flex w-full items-center gap-3 rounded-lg bg-surface p-2 text-left shadow-sm ring-1 ring-ink/10 hover:shadow-md"
                       onClick={() => openBook(book)}
                     >
-                      <img src={book.coverDataUrl} alt="" className="h-16 w-12 shrink-0 rounded-sm object-cover object-top shadow" />
+                      <img src={book.coverDataUrl} alt="" className="pt-paper h-16 w-12 shrink-0 rounded-sm object-cover object-top shadow" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-serif">{book.title}</span>
                         <span className="block text-xs tabular-nums text-ink-muted">{progressLabel(page, book.pageCount)}</span>
@@ -294,11 +317,52 @@ export default function LibraryPage() {
 
         {books.length > 0 && (
           <section aria-labelledby="library-heading">
-            <h2 id="library-heading" className="mb-3 font-serif text-xl">
-              Library <span className="text-base text-ink-muted">({books.length})</span>
-            </h2>
+            <div className="mb-4 flex flex-wrap items-end gap-3">
+              <h2 id="library-heading" className="mr-auto font-serif text-xl">
+                Library{" "}
+                <span className="text-base text-ink-muted" data-testid="library-count">
+                  ({query.trim() ? `${shown.length} of ${books.length}` : books.length})
+                </span>
+              </h2>
+              <label className="flex min-w-0 flex-1 flex-col text-sm sm:max-w-64 sm:flex-none">
+                <span className="mb-1 text-ink-muted">Search by title</span>
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="e.g. biology"
+                  className="min-h-11 rounded-lg border border-ink/30 bg-surface px-3 text-base text-ink placeholder:text-ink-muted"
+                />
+              </label>
+              <label className="flex flex-col text-sm">
+                <span className="mb-1 text-ink-muted">Sort by</span>
+                <select
+                  value={sort}
+                  onChange={(e) => {
+                    const v = e.target.value as LibrarySort;
+                    setSort(v);
+                    saveSort(v);
+                  }}
+                  className="min-h-11 rounded-lg border border-ink/30 bg-surface px-2 text-base text-ink"
+                >
+                  {(Object.keys(SORT_LABELS) as LibrarySort[]).map((k) => (
+                    <option key={k} value={k}>
+                      {SORT_LABELS[k]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {shown.length === 0 && (
+              <p className="py-8 text-center text-ink-muted" role="status">
+                No books match "{query.trim()}".{" "}
+                <button type="button" className="text-accent underline underline-offset-2" onClick={() => setQuery("")}>
+                  Clear search
+                </button>
+              </p>
+            )}
             <ul className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-              {books.map((book) => (
+              {shown.map((book) => (
                 <li key={book.id}>
                   <BookCard
                     book={book}
@@ -306,6 +370,7 @@ export default function LibraryPage() {
                     cached={library?.cached.has(book.id) ?? false}
                     onOpen={openBook}
                     onRemove={setRemoving}
+                    onCheckUpdate={isGoogleConfigured() ? checkUpdate : undefined}
                   />
                 </li>
               ))}
@@ -313,6 +378,26 @@ export default function LibraryPage() {
           </section>
         )}
       </main>
+
+      {updating && (
+        <ConfirmDialog
+          title="Update from Google Drive?"
+          message={`A newer version of "${updating.title}" is in Drive. Download it now? Your page and bookmarks are kept.`}
+          confirmLabel="Update"
+          onCancel={() => setUpdating(null)}
+          onConfirm={() => {
+            const book = updating;
+            setUpdating(null);
+            useAuth
+              .getState()
+              .driveToken()
+              .then((token) =>
+                imports.start([{ id: book.id, name: `${book.title}.pdf`, mimeType: "application/pdf" }], token, { autoOpen: false }),
+              )
+              .catch(() => {});
+          }}
+        />
+      )}
 
       {removing && (
         <ConfirmDialog
@@ -351,7 +436,7 @@ function EmptyState({ onPick, onDrive, busy }: { onPick(): void; onDrive(): void
       <h1 className="font-serif text-3xl">Your library is empty</h1>
       <p className="mt-3 text-ink-muted">Add a PDF to start reading. There are two ways:</p>
       <ol className="mt-6 grid gap-4 text-left sm:grid-cols-2">
-        <li className="flex flex-col rounded-lg bg-white p-4 shadow-sm ring-1 ring-black/5">
+        <li className="flex flex-col rounded-lg bg-surface p-4 shadow-sm ring-1 ring-ink/10">
           <p className="font-medium">From Google Drive</p>
           <p className="mt-1 flex-1 text-sm text-ink-muted">
             {drive
@@ -364,7 +449,7 @@ function EmptyState({ onPick, onDrive, busy }: { onPick(): void; onDrive(): void
             </button>
           )}
         </li>
-        <li className="flex flex-col rounded-lg bg-white p-4 shadow-sm ring-1 ring-black/5">
+        <li className="flex flex-col rounded-lg bg-surface p-4 shadow-sm ring-1 ring-ink/10">
           <p className="font-medium">From this device</p>
           <p className="mt-1 flex-1 text-sm text-ink-muted">Choose a PDF, or drag one anywhere onto this page. No sign-in needed.</p>
           <button type="button" className={`${drive ? "btn-secondary" : "btn-primary"} mt-4`} onClick={onPick} disabled={busy}>

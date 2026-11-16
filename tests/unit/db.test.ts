@@ -12,7 +12,7 @@ import {
   storageUsage,
   type NewBook,
 } from "../../src/lib/db/books";
-import { getProgress, savePage } from "../../src/lib/db/progress";
+import { getProgress, savePage, toggleBookmark } from "../../src/lib/db/progress";
 import { db } from "../../src/lib/db/schema";
 
 const book = (id: string, sizeBytes = 1000): NewBook => ({
@@ -86,6 +86,31 @@ describe("clearCache (OFF-1)", () => {
     expect(lib.books).toHaveLength(1);
     expect(lib.cached.size).toBe(0);
     expect((await getProgress("local:a"))?.page).toBe(12);
+  });
+});
+
+describe("toggleBookmark (RDR-14)", () => {
+  it("adds and removes bookmarks, kept sorted, and the page save keeps them", async () => {
+    await saveBook(book("local:a"));
+    expect(await toggleBookmark("local:a", 30, 4)).toEqual([30]);
+    expect(await toggleBookmark("local:a", 12, 4)).toEqual([12, 30]);
+    await savePage("local:a", 20);
+    expect(await getProgress("local:a")).toMatchObject({ page: 20, bookmarks: [12, 30] });
+    expect(await toggleBookmark("local:a", 30, 20)).toEqual([12]);
+    expect((await getProgress("local:a"))?.bookmarks).toEqual([12]);
+  });
+
+  it("seeds the progress row with the current page for a book never saved", async () => {
+    await saveBook(book("local:b"));
+    await toggleBookmark("local:b", 7, 7, 900);
+    expect(await getProgress("local:b")).toEqual({ bookId: "local:b", page: 7, updatedAt: 900, bookmarks: [7] });
+  });
+
+  it("is removed with the book", async () => {
+    await saveBook(book("local:c"));
+    await toggleBookmark("local:c", 3, 3);
+    await removeBook("local:c");
+    expect(await getProgress("local:c")).toBeUndefined();
   });
 });
 
