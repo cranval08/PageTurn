@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+/* Visual direction: calm, paper-like; serif titles, sans UI, one accent. */
+@theme {
+  --color-paper: #f6f4ef;
+  --color-stage: #e7e3da;
+  --color-ink: #1f1d1a;
+  --color-ink-muted: #5c574f; /* 6.4:1 on paper */
+  --color-accent: #1f5f5b; /* 7.0:1 on paper, white text 7.4:1 */
+  --color-accent-hover: #174a47;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-accent px-4 font-medium text-white hover:bg-accent-hover disabled:opacity-60;
+  }
+  .btn-secondary {
+    @apply inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-ink/20 bg-white px-4 font-medium text-ink hover:bg-paper;
+  }
+  .icon-btn {
+    @apply inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl text-ink hover:bg-black/5;
+  }
+}
+
+/* Reader */
+.reader-bar {
+  background: color-mix(in srgb, var(--color-paper) 92%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 1px 0 rgb(0 0 0 / 0.06);
+}
+
+.pt-book {
+  filter: drop-shadow(0 8px 24px rgb(0 0 0 / 0.18));
+}
+
+.pt-page {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+}
+
+.pt-page-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.pt-page-skeleton {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #fbfaf7;
+}
+
+.reader-skeleton {
+  position: relative;
+  width: min(70vw, 420px);
+  aspect-ratio: 3 / 4;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.15);
+}
+
+.pt-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  border: 3px solid rgb(0 0 0 / 0.12);
+  border-top-color: var(--color-accent);
+  animation: pt-spin 0.8s linear infinite;
+}
+
+@keyframes pt-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pt-spinner {
+    animation-duration: 2.4s;
+  }
+}
