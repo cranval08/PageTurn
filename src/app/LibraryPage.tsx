@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { AccountButton } from "../components/AccountButton";
 import { BookCard } from "../components/BookCard";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { ImportPanel } from "../components/ImportPanel";
+import { Menu } from "../components/Menu";
 import { addLocalBook } from "../lib/addBook";
 import { loadLibrary, removeBook, type LibraryData } from "../lib/db/books";
 import type { Book } from "../lib/db/schema";
 import { NotPdfError } from "../lib/files";
 import { progressLabel, progressPercent } from "../lib/format";
+import { AuthError, initAuth } from "../lib/google/auth";
+import { isGoogleConfigured } from "../lib/google/config";
+import { pickPdfs } from "../lib/google/picker";
 import { PdfOpenError } from "../lib/pdf/loader";
+import { useAuth } from "../store/auth";
+import { useDriveImport } from "./useDriveImport";
 
 /** Shown in the "Continue reading" strip once the library has more books than this. */
 const CONTINUE_COUNT = 3;
@@ -21,6 +29,10 @@ export default function LibraryPage() {
   const [dragging, setDragging] = useState(false);
   const [removing, setRemoving] = useState<Book | null>(null);
 
+  const [openingDrive, setOpeningDrive] = useState(false);
+  const authStatus = useAuth((s) => s.status);
+  const authError = useAuth((s) => s.error);
+
   const refresh = useCallback(async () => {
     setLibrary(await loadLibrary());
   }, []);
@@ -28,6 +40,38 @@ export default function LibraryPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Load Google Identity Services early so the sign-in popup can open straight from a click.
+  useEffect(() => {
+    if (isGoogleConfigured()) initAuth().catch(() => {});
+  }, []);
+
+  const imports = useDriveImport((added, autoOpen) => {
+    void refresh();
+    // One file picked and added: open it straight away (3-tap goal).
+    if (autoOpen) navigate(`/read/${encodeURIComponent(added[0].id)}`);
+  });
+
+  /** DRV-2: sign in if needed, show the Picker, import what was picked. Called from a click. */
+  const addFromDrive = () => {
+    setMessage(null);
+    useAuth.getState().clearError();
+    if (!isGoogleConfigured()) {
+      setMessage("Google Drive isn't set up. Add your Google keys to .env.local (see the README).");
+      return;
+    }
+    const tokenPromise = useAuth.getState().driveToken(); // opens the popup synchronously if needed
+    setOpeningDrive(true);
+    tokenPromise
+      .then(async (token) => {
+        const files = await pickPdfs(token);
+        if (files.length > 0) imports.start(files, token);
+      })
+      .catch((err) => {
+        if (!(err instanceof AuthError)) setMessage(err instanceof Error ? err.message : "Couldn't open Google Drive.");
+      })
+      .finally(() => setOpeningDrive(false));
+  };
 
   // Performance mark for the "library loads in under 500 ms" check.
   useEffect(() => {
@@ -58,6 +102,16 @@ export default function LibraryPage() {
   const openBook = useCallback(
     (book: Book) => {
       if (library && !library.cached.has(book.id)) {
+        if (book.source === "drive" && isGoogleConfigured()) {
+          // Re-download on demand (PRD risk: storage eviction). Called from a click.
+          setMessage(null);
+          useAuth
+            .getState()
+            .driveToken()
+            .then((token) => imports.start([{ id: book.id, name: `${book.title}.pdf`, mimeType: "application/pdf" }], token))
+            .catch(() => {});
+          return;
+        }
         setMessage(
           book.source === "local"
             ? `"${book.title}" was cleared from this device. Add the same PDF again to keep reading where you left off.`
@@ -67,7 +121,7 @@ export default function LibraryPage() {
       }
       navigate(`/read/${encodeURIComponent(book.id)}`);
     },
-    [library, navigate],
+    [library, navigate, imports],
   );
 
   // Drag a PDF anywhere on the page.
@@ -112,17 +166,50 @@ export default function LibraryPage() {
 
   return (
     <div className="min-h-dvh bg-paper text-ink">
-      <header className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-4">
-        <span className="flex-1 font-serif text-2xl font-semibold">PageTurn</span>
+      <header className="mx-auto flex max-w-6xl items-center gap-1 px-4 py-4 sm:gap-2">
+        <span className="min-w-0 flex-1 truncate font-serif text-xl font-semibold sm:text-2xl">PageTurn</span>
         <Link to="/settings" className="icon-btn" aria-label="Settings">
           <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8">
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
           </svg>
         </Link>
-        <button type="button" className="btn-primary" onClick={pickFile} disabled={busy}>
-          {busy ? "Adding…" : "+ Add book"}
-        </button>
+        <Menu
+          label="Add book"
+          trigger={(props) => (
+            <button {...props} type="button" className="btn-primary whitespace-nowrap" disabled={busy || openingDrive}>
+              {busy || openingDrive ? "Adding…" : "+ Add book"}
+            </button>
+          )}
+        >
+          {(close) => (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                onClick={() => {
+                  close();
+                  addFromDrive();
+                }}
+              >
+                From Google Drive
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                onClick={() => {
+                  close();
+                  pickFile();
+                }}
+              >
+                From this device
+              </button>
+            </>
+          )}
+        </Menu>
+        <AccountButton />
         <input
           ref={inputRef}
           type="file"
@@ -148,7 +235,30 @@ export default function LibraryPage() {
           </div>
         )}
 
-        {library && books.length === 0 && <EmptyState onPick={pickFile} busy={busy} />}
+        {authStatus === "expired" && (
+          <div role="alert" className="mb-6 flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950">
+            <p className="flex-1">Your Google session expired. Your books are safe; sign in again to add from Drive.</p>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => void useAuth.getState().driveToken().catch(() => {})}
+            >
+              Sign in again
+            </button>
+          </div>
+        )}
+        {authError && authStatus !== "expired" && (
+          <div role="alert" className="mb-6 flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950">
+            <p className="flex-1">{authError}</p>
+            <button type="button" className="-my-2 -mr-2 icon-btn text-base" aria-label="Dismiss message" onClick={() => useAuth.getState().clearError()}>
+              <span aria-hidden="true">✕</span>
+            </button>
+          </div>
+        )}
+
+        {library && books.length === 0 && (
+          <EmptyState onPick={pickFile} onDrive={addFromDrive} busy={busy || openingDrive} />
+        )}
 
         {recent.length > 0 && (
           <section aria-labelledby="continue-heading" className="mb-10">
@@ -222,6 +332,8 @@ export default function LibraryPage() {
         />
       )}
 
+      <ImportPanel items={imports.items} onRetry={imports.retry} onDismiss={imports.dismiss} />
+
       {dragging && (
         <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center bg-accent/15 outline-4 -outline-offset-8 outline-accent outline-dashed">
           <p className="rounded-lg bg-paper px-6 py-4 font-serif text-xl shadow-lg">Drop a PDF to add it</p>
@@ -232,24 +344,34 @@ export default function LibraryPage() {
 }
 
 /** LIB-4: explain the two ways to add a book. */
-function EmptyState({ onPick, busy }: { onPick(): void; busy: boolean }) {
+function EmptyState({ onPick, onDrive, busy }: { onPick(): void; onDrive(): void; busy: boolean }) {
+  const drive = isGoogleConfigured();
   return (
     <section className="mx-auto mt-12 max-w-lg text-center">
       <h1 className="font-serif text-3xl">Your library is empty</h1>
       <p className="mt-3 text-ink-muted">Add a PDF to start reading. There are two ways:</p>
       <ol className="mt-6 grid gap-4 text-left sm:grid-cols-2">
-        <li className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-black/5">
-          <p className="font-medium">From this device</p>
-          <p className="mt-1 text-sm text-ink-muted">Choose a PDF, or drag one anywhere onto this page. No sign-in needed.</p>
-        </li>
-        <li className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-black/5">
+        <li className="flex flex-col rounded-lg bg-white p-4 shadow-sm ring-1 ring-black/5">
           <p className="font-medium">From Google Drive</p>
-          <p className="mt-1 text-sm text-ink-muted">Sign in with Google and pick PDFs from your Drive. Coming soon.</p>
+          <p className="mt-1 flex-1 text-sm text-ink-muted">
+            {drive
+              ? "Sign in with Google and pick one or more PDFs. PageTurn only sees the files you pick."
+              : "Not set up in this copy of PageTurn (see the README)."}
+          </p>
+          {drive && (
+            <button type="button" className="btn-primary mt-4" onClick={onDrive} disabled={busy}>
+              Open from Google Drive
+            </button>
+          )}
+        </li>
+        <li className="flex flex-col rounded-lg bg-white p-4 shadow-sm ring-1 ring-black/5">
+          <p className="font-medium">From this device</p>
+          <p className="mt-1 flex-1 text-sm text-ink-muted">Choose a PDF, or drag one anywhere onto this page. No sign-in needed.</p>
+          <button type="button" className={`${drive ? "btn-secondary" : "btn-primary"} mt-4`} onClick={onPick} disabled={busy}>
+            {busy ? "Adding…" : "Open from this device"}
+          </button>
         </li>
       </ol>
-      <button type="button" className="btn-primary mt-6" onClick={onPick} disabled={busy}>
-        {busy ? "Adding…" : "Open from this device"}
-      </button>
     </section>
   );
 }

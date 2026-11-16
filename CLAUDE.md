@@ -9,7 +9,8 @@ PDF flipbook reader PWA with Google Drive. **`PRD.md` is the spec**: requirement
 - `react-pageflip` 2.0.3 over `page-flip` 2.0.7; only ever used through `src/components/FlipBook.tsx`
 - Zustand for state (`src/store/`), Tailwind CSS v4 via `@tailwindcss/vite` (theme tokens in `src/index.css` `@theme`)
 - Vitest + Testing Library (jsdom) for unit/component tests; Playwright (Chromium: `desktop-chrome`, `pixel-7`) for e2e
-- Planned per PRD: Dexie (Phase 2), GIS + Picker + Drive REST over `fetch` (Phase 3), `@use-gesture/react` + `vite-plugin-pwa` (Phase 4)
+- Dexie 4 (IndexedDB). Google: GIS token client + Picker (scripts loaded at runtime, typed in `src/types/google.d.ts`) + Drive v3 REST over `fetch`
+- Planned per PRD: `@use-gesture/react` + `vite-plugin-pwa` (Phase 4)
 
 ## Commands
 
@@ -18,7 +19,7 @@ PDF flipbook reader PWA with Google Drive. **`PRD.md` is the spec**: requirement
 | `npm run dev` | Dev server on http://localhost:5173 (strict port; OAuth origin depends on it) |
 | `npm run build` | `tsc --noEmit` type check, then `vite build` |
 | `npm test` | Vitest unit + component tests (`tests/unit`) |
-| `npm run test:e2e` | Playwright; builds and serves `vite preview` on :4173 itself |
+| `npm run test:e2e` | Playwright; builds into `dist-e2e` with FAKE `VITE_GOOGLE_*` (see `playwright.config.ts`) and serves it on :4173 |
 | `npm run fixtures` | Regenerates `tests/fixtures/*.pdf` (no deps) |
 
 Before calling a phase done: `npm run build`, `npm test` and `npm run test:e2e` must all pass.
@@ -31,7 +32,8 @@ src/app/         route screens (LibraryPage, ReaderPage; Settings/Privacy later)
 src/components/  FlipBook (react-pageflip wrapper), PdfPage (one canvas page)
 src/lib/         pure logic: layout.ts, input.ts, files.ts; pdf/ (loader, renderPage)
 src/lib/db/      Dexie: schema.ts (books, files, progress, kv), books.ts, progress.ts, settingsStorage.ts
-src/lib/addBook.ts  validate → open → cover → save pipeline for device PDFs
+src/lib/addBook.ts, addDriveBook.ts  validate → open → cover → save pipelines (device, Drive)
+src/lib/google/  config (env, SCOPES), auth (GIS token, memory only), picker, drive (REST), scripts
 src/store/       Zustand stores: reader (current page), settings (persisted to IndexedDB kv)
 src/types/       hand-written .d.ts (page-flip ships no types)
 tests/unit/      *.test.ts(x)    tests/e2e/  *.spec.ts    tests/fixtures/  sample PDFs
@@ -49,7 +51,12 @@ tests/unit/      *.test.ts(x)    tests/e2e/  *.spec.ts    tests/fixtures/  sampl
 - Settings live in `useSettings`; only expose UI for settings whose behaviour exists (theme/animation/sound UI arrives with their phases).
 - Accessibility: icon buttons need `aria-label`; touch targets ≥ 44 px (`btn-primary`, `icon-btn`); page changes announced via the `aria-live` region.
 - Secrets: Google values come from `VITE_GOOGLE_*` in `.env.local` (git-ignored); keep `.env.example` in sync. Never store Google tokens in localStorage.
-- OAuth scopes: only `drive.file`, `drive.appdata` (Phase 6) and `openid email profile`.
+- OAuth scopes: only `drive.file`, `drive.appdata` (Phase 6) and `openid email profile`, defined once in `src/lib/google/config.ts` `SCOPES` (unit-tested).
+- Google popups: `requestToken()` / `useAuth().driveToken()` / `signIn()` must be called synchronously inside a click (popup blockers). GIS is preloaded when the library mounts; the Picker script loads on first use.
+- Token expiry (DRV-4): tokens are refreshed 60 s early; Drive 401 → `markExpired()` → "Sign in again" banner. Reading never needs a token, so the open book is never affected.
+- E2E Google mocks live in `tests/e2e/google-mock.ts` (GIS, gapi/Picker, Drive, userinfo; all other Google hosts are blocked). Control via `setGis`, `setPicked`, and the returned `DriveMock`.
+- Phone layout: nothing may overflow horizontally on a 412 px screen. Overflow widens the mobile layout viewport and broke the reader's page size once (see the "no sideways scroll" e2e test).
+- Fixtures: `npm run fixtures` also makes `corrupt.pdf` and `password-protected.pdf` (Standard handler, non-empty user password).
 
 ## page-flip / react-pageflip gotchas (handled in FlipBook.tsx; keep them)
 

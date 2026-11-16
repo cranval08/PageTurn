@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { Avatar } from "../components/AccountButton";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { isGoogleConfigured } from "../lib/google/config";
+import { useAuth } from "../store/auth";
 import { clearCache, storageUsage, type StorageUsage } from "../lib/db/books";
 import { formatBytes } from "../lib/format";
 import type { LayoutMode } from "../lib/layout";
@@ -15,6 +18,8 @@ const LAYOUTS: { value: LayoutMode; label: string; hint: string }[] = [
 export default function SettingsPage() {
   const layout = useSettings((s) => s.layout);
   const update = useSettings((s) => s.update);
+  const user = useAuth((s) => s.user);
+  const signOut = useAuth((s) => s.signOut);
   const [usage, setUsage] = useState<StorageUsage | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -54,6 +59,31 @@ export default function SettingsPage() {
             ))}
           </div>
         </fieldset>
+
+        {isGoogleConfigured() && (
+          <section aria-labelledby="account-heading" className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5">
+            <h2 id="account-heading" className="font-serif text-lg">
+              Google account
+            </h2>
+            {user ? (
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Avatar name={user.name} picture={user.picture} size={40} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{user.name}</p>
+                  <p className="truncate text-sm text-ink-muted">{user.email}</p>
+                </div>
+                <button type="button" className="btn-secondary" onClick={() => void signOut()}>
+                  Sign out
+                </button>
+              </div>
+            ) : (
+              <p className="mt-2 text-ink-muted">Not signed in. Sign in from the library to add books from Google Drive.</p>
+            )}
+            <p className="mt-3 text-sm text-ink-muted">
+              Signing out doesn't remove books from this device. PageTurn can only see Drive files you pick.
+            </p>
+          </section>
+        )}
 
         <section aria-labelledby="storage-heading" className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5">
           <h2 id="storage-heading" className="font-serif text-lg">

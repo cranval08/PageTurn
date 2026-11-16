@@ -39,7 +39,11 @@ function useViewportSize(debounceMs = 120) {
     };
     window.addEventListener("resize", onResize);
     window.addEventListener("orientationchange", onResize);
+    // Mobile browsers can report a wider layout viewport left over from the previous
+    // screen during client-side navigation; re-measure once layout has settled.
+    const frame = requestAnimationFrame(() => setSize(read()));
     return () => {
+      cancelAnimationFrame(frame);
       window.clearTimeout(timer);
       window.removeEventListener("resize", onResize);
       window.removeEventListener("orientationchange", onResize);

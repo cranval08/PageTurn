@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const outDir = join(dirname(fileURLToPath(import.meta.url)), "..", "tests", "fixtures");
 mkdirSync(outDir, { recursive: true });
 
-function buildPdf(pageCount) {
+function buildPdf(pageCount, { encrypted = false } = {}) {
   const objects = []; // index i => object number i + 1
   const add = (body) => { objects.push(body); return objects.length; };
   const catalog = add(null);
@@ -36,10 +36,21 @@ function buildPdf(pageCount) {
   const xref = Buffer.byteLength(out, "latin1");
   out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
   out += offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("");
-  out += `trailer\n<< /Size ${objects.length + 1} /Root ${catalog} 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+
+  // Password-protected fixture: a Standard security handler whose O/U entries don't
+  // match the empty password, so readers (pdf.js) must ask for a password
+  // (PasswordException). Streams stay unencrypted; they are never reached.
+  const hex = (pair, n) => pair.repeat(n);
+  const encrypt = encrypted
+    ? ` /Encrypt << /Filter /Standard /V 1 /R 2 /O <${hex("ab", 32)}> /U <${hex("cd", 32)}> /P -44 >> /ID [<${hex("01", 16)}> <${hex("01", 16)}>]`
+    : "";
+  out += `trailer\n<< /Size ${objects.length + 1} /Root ${catalog} 0 R${encrypt} >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(out, "latin1");
 }
 
 writeFileSync(join(outDir, "sample-50p.pdf"), buildPdf(50));
+writeFileSync(join(outDir, "password-protected.pdf"), buildPdf(3, { encrypted: true }));
+// Corrupt: a valid PDF header followed by garbage, with no objects or xref table.
+writeFileSync(join(outDir, "corrupt.pdf"), `%PDF-1.4\n${"garbage ".repeat(200)}\n%%EOF\n`);
 writeFileSync(join(outDir, "not-a-pdf.pdf"), "This is plain text pretending to be a PDF.\n");
 console.log("Fixtures written to", outDir);

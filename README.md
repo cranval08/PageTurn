@@ -4,13 +4,17 @@ Read PDFs as a book. PageTurn is an installable web app (PWA) that opens PDFs fr
 
 No backend, no database, no analytics: everything runs and is stored in your browser.
 
-> **Status:** Phase 1 of 6 (local PDF flipbook). See [`PRD.md`](PRD.md) for the full spec and roadmap.
+> **Status:** Phases 1–3 of 6 done (local flipbook, library and progress, Google Drive). See [`PRD.md`](PRD.md) for the full spec and roadmap.
 
 ## Features
 
-### Available now (Phase 1)
+### Available now
 
+- Sign in with Google and pick one or more PDFs from Google Drive (Recent, My Drive, Shared with me), with download progress for large files
 - Open a PDF from your device with the file picker or by dragging it onto the page (no sign-in needed)
+- Library of covers with reading progress ("p. 84 of 312 · 27%"), a Continue reading strip, and Remove from library
+- Reopens every book at the page where you stopped; books are saved on the device and open without internet
+- Settings: page layout (Auto / Single / Spread), storage used, Clear cache, Google account and Sign out
 - Page-curl animation with page shadow, rendered sharply with pdf.js
 - Two-page spread on landscape screens at least 900 px wide, single page otherwise; switches live on resize or rotate and keeps your page
 - Turn pages by swiping, dragging a corner, tapping the left or right 20% of the screen, or with the Arrow keys, PageUp/PageDown and Space (Shift+Space goes back)
@@ -20,8 +24,6 @@ No backend, no database, no analytics: everything runs and is stored in your bro
 
 | Phase | Adds |
 | --- | --- |
-| 2 | Library with covers and progress, remembers your page, offline copies of books |
-| 3 | Google sign-in and opening PDFs from Google Drive |
 | 4 | Toolbar, go to page, zoom and pan, reduced-motion setting, installable offline PWA |
 | 5 | Page scrubber, table of contents, thumbnails, PDF links, light/sepia/dark themes, bookmarks, library search |
 | 6 | Sync progress across devices through Google Drive, privacy page, deployment |
@@ -45,7 +47,7 @@ Then open http://localhost:5173 and choose **Open from this device**.
 | `npm run build` | Type-checks and builds the production bundle into `dist/` |
 | `npm run preview` | Serves the production build locally |
 | `npm test` | Runs unit and component tests (Vitest) |
-| `npm run test:e2e` | Builds the app and runs end-to-end tests (Playwright, desktop Chrome and Pixel 7) |
+| `npm run test:e2e` | Builds the app with fake Google keys into `dist-e2e/` and runs end-to-end tests (Playwright, desktop Chrome and Pixel 7). Google is fully mocked; test real Drive by hand. |
 | `npm run fixtures` | Regenerates the test PDFs in `tests/fixtures/` |
 
 Before running the end-to-end tests for the first time, install the browser:
@@ -54,7 +56,7 @@ Before running the end-to-end tests for the first time, install the browser:
 npx playwright install chromium
 ```
 
-## Google Cloud setup (needed from Phase 3)
+## Google Cloud setup (for Google Drive)
 
 Opening files from Google Drive needs your own Google Cloud credentials. This is a one-time setup:
 
@@ -72,7 +74,11 @@ Opening files from Google Drive needs your own Google Cloud credentials. This is
 
    `VITE_GOOGLE_APP_ID` is the numeric project number (Cloud Console → project settings), which the Picker needs for the `drive.file` scope.
 
-`.env.local` is git-ignored. Never commit it.
+`.env.local` is git-ignored. Never commit it. Restart `npm run dev` after changing it. Without these values PageTurn still works with PDFs from your device; the Drive options are hidden.
+
+While the consent screen is in Testing mode, only the test users you added can sign in. If sign-in does nothing, allow pop-ups for the site.
+
+The client ID and API key end up in the browser bundle; that is normal for a browser app and why the API key must be restricted to the Picker API and your referrers.
 
 ### Permissions PageTurn asks for
 
@@ -91,6 +97,8 @@ You can revoke access at any time at [myaccount.google.com/permissions](https://
 - TypeScript, React 18, Vite, React Router
 - [pdf.js](https://mozilla.github.io/pdf.js/) (`pdfjs-dist`) in a Web Worker, loaded on demand
 - [StPageFlip](https://github.com/Nodlik/StPageFlip) via `react-pageflip` for the page-turn effect
+- Dexie (IndexedDB) for books, progress and settings
+- Google Identity Services, Google Picker and the Drive REST API over `fetch` (no Google client library)
 - Zustand for state, Tailwind CSS for styling
 - Vitest and Testing Library for unit tests, Playwright for end-to-end tests
 
@@ -98,9 +106,10 @@ You can revoke access at any time at [myaccount.google.com/permissions](https://
 
 ```
 src/
-  app/          screens: LibraryPage, ReaderPage
+  app/          screens: LibraryPage, ReaderPage, SettingsPage
   components/   FlipBook (page-flip wrapper), PdfPage (one rendered page)
-  lib/          layout and input logic, file handling, pdf/ (loader, renderer)
+  lib/          layout and input logic, file handling, db/ (IndexedDB via Dexie),
+                google/ (sign-in, Picker, Drive), pdf/ (loader, renderer, covers)
   store/        Zustand stores
   types/        type declarations for untyped packages
 tests/
