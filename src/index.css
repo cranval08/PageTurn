@@ -103,3 +103,12 @@ body {
     animation-duration: 2.4s;
   }
 }
+
+@layer components {
+  .btn-danger {
+    @apply inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-red-800 px-4 font-medium text-white hover:bg-red-900;
+  }
+  .menu-item {
+    @apply flex min-h-11 w-full items-center px-4 text-left hover:bg-paper focus-visible:bg-paper;
+  }
+}

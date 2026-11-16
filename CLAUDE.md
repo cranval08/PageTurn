@@ -30,8 +30,9 @@ First Playwright run on a machine: `npx playwright install chromium`.
 src/app/         route screens (LibraryPage, ReaderPage; Settings/Privacy later)
 src/components/  FlipBook (react-pageflip wrapper), PdfPage (one canvas page)
 src/lib/         pure logic: layout.ts, input.ts, files.ts; pdf/ (loader, renderPage)
-src/lib/session.ts  Phase-1 in-memory book store → replaced by Dexie in Phase 2
-src/store/       Zustand stores
+src/lib/db/      Dexie: schema.ts (books, files, progress, kv), books.ts, progress.ts, settingsStorage.ts
+src/lib/addBook.ts  validate → open → cover → save pipeline for device PDFs
+src/store/       Zustand stores: reader (current page), settings (persisted to IndexedDB kv)
 src/types/       hand-written .d.ts (page-flip ships no types)
 tests/unit/      *.test.ts(x)    tests/e2e/  *.spec.ts    tests/fixtures/  sample PDFs
 ```
@@ -42,6 +43,10 @@ tests/unit/      *.test.ts(x)    tests/e2e/  *.spec.ts    tests/fixtures/  sampl
 - Name tests after requirement IDs (e.g. `"RDR-3: …"`) so acceptance criteria map to evidence.
 - Page indexes: page-flip and the reader store use **0-based** indexes; anything user-facing or persisted (`Progress.page`) is **1-based**. In a spread the cover is alone, then `[1,2]`, `[3,4]`… (`spreadLeftIndex`).
 - Book ids: Drive fileId, or `local:` + SHA-256 of the bytes.
+- Storage (Dexie, DB `pageturn`): PDF bytes only in `files` so the library list never loads blobs; `removeBook` deletes book + file + progress in one transaction; "Clear cache" deletes `files` only (library and progress stay). Schema changes need a new `db.version(n)`.
+- Progress (PRG-1): reader saves via a 500 ms debounce and flushes on unmount/pagehide/hidden; `loadLibrary` awaits `whenProgressSaved()` so it never reads a stale page.
+- Dexie unit tests run in `// @vitest-environment node` with `fake-indexeddb/auto` (jsdom Blobs are not structured-cloneable). Component tests that touch Dexie import `fake-indexeddb/auto` and mock `src/lib/addBook` (no pdf.js/canvas in jsdom).
+- Settings live in `useSettings`; only expose UI for settings whose behaviour exists (theme/animation/sound UI arrives with their phases).
 - Accessibility: icon buttons need `aria-label`; touch targets ≥ 44 px (`btn-primary`, `icon-btn`); page changes announced via the `aria-live` region.
 - Secrets: Google values come from `VITE_GOOGLE_*` in `.env.local` (git-ignored); keep `.env.example` in sync. Never store Google tokens in localStorage.
 - OAuth scopes: only `drive.file`, `drive.appdata` (Phase 6) and `openid email profile`.
