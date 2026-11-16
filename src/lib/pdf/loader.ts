@@ -28,11 +28,32 @@ export function loadPdfJs(): Promise<PdfJs> {
   return pdfjsPromise;
 }
 
+/**
+ * Where pdf.js finds the resources it loads at runtime (copied to /pdfjs/ by
+ * scripts/pdfjs-assets.mjs). Without these, scanned pages (JPEG 2000 / JBIG2
+ * images) render blank and CMap-encoded text (e.g. Chinese, Japanese, Korean)
+ * is silently missing.
+ */
+export function pdfResourceOptions(origin: string = location.origin, base: string = import.meta.env.BASE_URL) {
+  // Resolve from the site root: relative to the page, /read/<book> would ask for
+  // /read/pdfjs/… and get the app's HTML back ("unexpected EOF in bcmap").
+  const at = (path: string) => new URL(`${base}pdfjs/${path}/`, origin).href;
+  return {
+    wasmUrl: at("wasm"),
+    cMapUrl: at("cmaps"),
+    cMapPacked: true,
+    standardFontDataUrl: at("standard_fonts"),
+    iccUrl: at("iccs"),
+    // PDF JavaScript stays off (security; not needed for reading).
+    enableScripting: false,
+  } as const;
+}
+
 export async function openPdf(data: Blob | ArrayBuffer): Promise<PDFDocumentProxy> {
   const pdfjs = await loadPdfJs();
   const bytes = data instanceof Blob ? await data.arrayBuffer() : data;
   try {
-    return await pdfjs.getDocument({ data: new Uint8Array(bytes) }).promise;
+    return await pdfjs.getDocument({ data: new Uint8Array(bytes), ...pdfResourceOptions() }).promise;
   } catch (err) {
     throw toPdfOpenError(err);
   }

@@ -3,9 +3,11 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
+import { pdfjsAssets } from "./scripts/pdfjs-assets.mjs";
 
 export default defineConfig({
   plugins: [
+    pdfjsAssets(), // pdf.js decoders, CMaps and fonts → public/pdfjs (see scripts/pdfjs-assets.mjs)
     react(),
     tailwindcss(),
     // OFF-2 (service worker caches the app shell) and OFF-3 (installable PWA).
@@ -32,7 +34,18 @@ export default defineConfig({
       },
       workbox: {
         // App shell + lazily loaded chunks + the pdf.js worker (.mjs), so books open offline.
-        globPatterns: ["**/*.{js,mjs,css,html,svg,png,webmanifest}"],
+        // Also precache the image decoders (~420 KB): scanned books must render offline.
+        globPatterns: ["**/*.{js,mjs,css,html,svg,png,webmanifest}", "pdfjs/wasm/*.wasm", "pdfjs/iccs/*.icc"],
+        // The no-WebAssembly fallbacks are large and only used by very old browsers.
+        globIgnores: ["pdfjs/**/*.js"],
+        // CMaps and standard fonts (2.3 MB in all) are cached the first time a book needs them.
+        runtimeCaching: [
+          {
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith("/pdfjs/"),
+            handler: "CacheFirst",
+            options: { cacheName: "pdfjs-assets", expiration: { maxEntries: 300 } },
+          },
+        ],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: "/index.html",
         cleanupOutdatedCaches: true,

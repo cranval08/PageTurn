@@ -50,3 +50,21 @@ describe("toPdfOpenError", () => {
     expect(toPdfOpenError(new Error("boom")).kind).toBe("unknown");
   });
 });
+
+describe("pdfResourceOptions (blank-pages fix)", () => {
+  it("points pdf.js at the site-root resources, never relative to the current page", async () => {
+    const { pdfResourceOptions } = await import("../../src/lib/pdf/loader");
+    const o = pdfResourceOptions("https://pageturn.example", "/");
+    expect(o).toEqual({
+      wasmUrl: "https://pageturn.example/pdfjs/wasm/",
+      cMapUrl: "https://pageturn.example/pdfjs/cmaps/",
+      cMapPacked: true,
+      standardFontDataUrl: "https://pageturn.example/pdfjs/standard_fonts/",
+      iccUrl: "https://pageturn.example/pdfjs/iccs/",
+      enableScripting: false,
+    });
+    // Defaults use the origin, so /read/<book> still resolves to /pdfjs/…
+    window.history.pushState({}, "", "/read/local%3Aabc");
+    expect(pdfResourceOptions().cMapUrl).toBe(`${location.origin}/pdfjs/cmaps/`);
+  });
+});

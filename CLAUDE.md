@@ -6,6 +6,7 @@ PDF flipbook reader PWA with Google Drive. **`PRD.md` is the spec**: requirement
 
 - TypeScript, Vite 8, React **18.3** (pinned: react-pageflip 2.0.3 predates React 19), react-router-dom 7 (library mode, `BrowserRouter`)
 - `pdfjs-dist` 6: loaded lazily in `src/lib/pdf/loader.ts` together with its worker (`?url` import). Never import pdf.js from the initial bundle.
+- pdf.js runtime resources: `scripts/pdfjs-assets.mjs` (a Vite plugin) copies `wasm` (OpenJPEG/JBIG2/qcms, no quickjs), `cmaps`, `standard_fonts`, `iccs` from pdfjs-dist into `public/pdfjs/` (git-ignored) on dev start and build. `openPdf` passes them via `pdfResourceOptions()`, resolved from the SITE ROOT (relative URLs break under /read/…). Without them scanned pages (JPEG 2000/JBIG2) render blank and CMap text (CJK) is silently missing. The SW precaches the .wasm/.icc files and runtime-caches the rest. Phase 6 CSP must allow `'wasm-unsafe-eval'` in script-src.
 - `react-pageflip` 2.0.3 over `page-flip` 2.0.7; only ever used through `src/components/FlipBook.tsx`
 - Zustand for state (`src/store/`), Tailwind CSS v4 via `@tailwindcss/vite` (theme tokens in `src/index.css` `@theme`)
 - Vitest + Testing Library (jsdom) for unit/component tests; Playwright (Chromium: `desktop-chrome`, `pixel-7`) for e2e

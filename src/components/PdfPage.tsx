@@ -27,6 +27,9 @@ export const PdfPage = forwardRef<HTMLDivElement, PdfPageProps>(function PdfPage
   const bookmarked = useReaderStore((s) => s.bookmarks.includes(index + 1));
   const hostRef = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState<Quality>("none");
+  /** Reliability NFR: a page that fails to draw says so (with Retry) instead of spinning forever. */
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -44,6 +47,7 @@ export const PdfPage = forwardRef<HTMLDivElement, PdfPageProps>(function PdfPage
       return;
     }
 
+    setFailed(false);
     const cached = ctx.cache.get(index);
     if (cached) show(cached);
     const needed = renderPixelRatio(quality, ctx.pixelRatio, zoom, ctx.width, ctx.height);
@@ -66,7 +70,9 @@ export const PdfPage = forwardRef<HTMLDivElement, PdfPageProps>(function PdfPage
         if (!cached && quality === "high") await renderAt("low", LOW_PIXEL_RATIO);
         if (!cancelled) await renderAt(quality, needed);
       } catch (err) {
-        if (!(err instanceof RenderCancelled)) console.error(`Failed to render page ${index + 1}`, err);
+        if (err instanceof RenderCancelled) return;
+        console.error(`Failed to render page ${index + 1}`, err);
+        if (!cancelled) setFailed(true);
       }
     })();
 
@@ -74,7 +80,7 @@ export const PdfPage = forwardRef<HTMLDivElement, PdfPageProps>(function PdfPage
       cancelled = true;
       for (const h of handles) h.cancel();
     };
-  }, [ctx, index, quality, zoom]);
+  }, [ctx, index, quality, zoom, attempt]);
 
   return (
     <div
@@ -89,9 +95,17 @@ export const PdfPage = forwardRef<HTMLDivElement, PdfPageProps>(function PdfPage
       <div ref={hostRef} className="pt-page-host" />
       {quality !== "none" && <LinkLayer index={index} />}
       {bookmarked && <span className="pt-ribbon" aria-hidden="true" data-testid="bookmark-ribbon" />}
-      {shown === "none" && (
+      {shown === "none" && !failed && (
         <div className="pt-page-skeleton" aria-hidden="true">
           <div className="pt-spinner" />
+        </div>
+      )}
+      {shown === "none" && failed && (
+        <div className="pt-page-skeleton flex-col gap-3 p-4 text-center text-sm text-[#5c574f]" role="alert" data-testid="page-error">
+          <p>Page {index + 1} couldn't be displayed.</p>
+          <button type="button" className="btn-secondary min-h-10 px-3 text-sm" onClick={() => setAttempt((a) => a + 1)}>
+            Retry
+          </button>
         </div>
       )}
     </div>
