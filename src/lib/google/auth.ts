@@ -1,4 +1,4 @@
-import { GIS_SCRIPT_URL, GOOGLE_CLIENT_ID, SCOPE_STRING, SCOPES, isGoogleConfigured } from "./config";
+import { APPDATA_SCOPE, DRIVE_FILE_SCOPE, GIS_SCRIPT_URL, GOOGLE_CLIENT_ID, SCOPE_STRING, isGoogleConfigured } from "./config";
 import { loadScript } from "./scripts";
 
 export type AuthErrorKind = "not_configured" | "not_ready" | "popup_blocked" | "popup_closed" | "denied" | "missing_scope" | "unknown";
@@ -38,6 +38,8 @@ let client: google.accounts.oauth2.TokenClient | null = null;
 let pending: { resolve(t: string): void; reject(e: Error): void } | null = null;
 let initPromise: Promise<void> | null = null;
 let loginHint: string | undefined;
+/** PRG-2: granular consent lets the user untick the app-folder box; sync is then off. */
+let appDataGranted = false;
 
 function onTokenResponse(response: google.accounts.oauth2.TokenResponse) {
   const p = pending;
@@ -48,10 +50,11 @@ function onTokenResponse(response: google.accounts.oauth2.TokenResponse) {
     return;
   }
   // Granular consent: the user may untick Drive access on the consent screen.
-  if (!google.accounts.oauth2.hasGrantedAllScopes(response, SCOPES[0])) {
+  if (!google.accounts.oauth2.hasGrantedAllScopes(response, DRIVE_FILE_SCOPE)) {
     p.reject(authError("missing_scope"));
     return;
   }
+  appDataGranted = google.accounts.oauth2.hasGrantedAllScopes(response, APPDATA_SCOPE);
   token = {
     accessToken: response.access_token,
     expiresAt: Date.now() + Number(response.expires_in) * 1000,
@@ -126,6 +129,11 @@ export function setLoginHint(email: string | undefined): void {
   loginHint = email;
 }
 
+/** PRG-2: did the user allow PageTurn's hidden Drive app folder (progress sync)? */
+export function canSync(): boolean {
+  return appDataGranted;
+}
+
 export function currentToken(): string | null {
   return hasValidToken() && token ? token.accessToken : null;
 }
@@ -135,6 +143,7 @@ export function signOutGoogle(): Promise<void> {
   const t = token?.accessToken;
   token = null;
   loginHint = undefined;
+  appDataGranted = false;
   if (!t || typeof google === "undefined") return Promise.resolve();
   return new Promise((resolve) => google.accounts.oauth2.revoke(t, () => resolve()));
 }
@@ -146,4 +155,5 @@ export function _resetAuthForTests(): void {
   pending = null;
   initPromise = null;
   loginHint = undefined;
+  appDataGranted = false;
 }

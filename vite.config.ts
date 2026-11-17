@@ -4,10 +4,12 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { pdfjsAssets } from "./scripts/pdfjs-assets.mjs";
+import { cspMeta } from "./scripts/csp.mjs";
 
 export default defineConfig({
   plugins: [
     pdfjsAssets(), // pdf.js decoders, CMaps and fonts → public/pdfjs (see scripts/pdfjs-assets.mjs)
+    cspMeta(), // Security NFR: CSP <meta> in production builds (see scripts/csp.mjs)
     react(),
     tailwindcss(),
     // OFF-2 (service worker caches the app shell) and OFF-3 (installable PWA).

@@ -7,6 +7,10 @@ import { DriveError } from "../lib/google/drive";
 import type { PickedFile } from "../lib/google/picker";
 import { PdfOpenError } from "../lib/pdf/loader";
 import { useAuth } from "../store/auth";
+import { syncWithin } from "../store/sync";
+
+/** PRG-2: how long a finished import waits for progress from other devices before opening. */
+const IMPORT_SYNC_WAIT_MS = 4_000;
 
 function messageFor(err: unknown): string {
   if (err instanceof NotPdfError || err instanceof PdfOpenError || err instanceof DriveError) return err.message;
@@ -48,6 +52,8 @@ export function useDriveImport(onFinished: (added: Book[], autoOpen: boolean) =>
           patch(item.key, { status: "error", error: messageFor(err), authError });
         }
       }
+      // PRG-2: pull progress from other devices first, so the book opens at the synced page.
+      if (added.length > 0) await syncWithin(IMPORT_SYNC_WAIT_MS, token);
       onFinishedRef.current(added, autoOpen && added.length === 1);
     },
     [patch],

@@ -7,12 +7,22 @@ import {
   getDriveFile,
   parseDriveFile,
   parseUserInfo,
+  createAppDataJson,
+  findAppDataFiles,
+  parseAppDataList,
+  updateAppDataJson,
 } from "../../src/lib/google/drive";
 
-describe("OAuth scopes (PRD: only drive.file + profile in Phase 3)", () => {
-  it("requests exactly drive.file, openid, email, profile", () => {
-    expect([...SCOPES]).toEqual(["https://www.googleapis.com/auth/drive.file", "openid", "email", "profile"]);
-    expect(SCOPE_STRING).toBe("https://www.googleapis.com/auth/drive.file openid email profile");
+describe("OAuth scopes (PRD: drive.file, drive.appdata from Phase 6, profile)", () => {
+  it("requests exactly drive.file, drive.appdata, openid, email, profile", () => {
+    expect([...SCOPES]).toEqual([
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/drive.appdata",
+      "openid",
+      "email",
+      "profile",
+    ]);
+    expect(SCOPE_STRING).toBe("https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata openid email profile");
   });
 
   it("never requests full or restricted Drive scopes", () => {
@@ -104,5 +114,59 @@ describe("downloadDriveFile (DRV-3)", () => {
   it("throws a network error when offline", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
     await expect(getDriveFile("x", "tok", fetchMock)).rejects.toMatchObject({ kind: "network" });
+  });
+});
+
+describe("PRG-2: Drive app folder (drive.appdata)", () => {
+  const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+
+  it("lists progress.json in the appDataFolder space only, oldest first", async () => {
+    const fetchImpl = vi.fn(async () => ok({ files: [{ id: "f1", modifiedTime: "t" }, { nope: 1 }] }));
+    expect(await findAppDataFiles("progress.json", "tok", fetchImpl as unknown as typeof fetch)).toEqual([{ id: "f1", modifiedTime: "t" }]);
+    const url = new URL(String((fetchImpl.mock.calls[0] as unknown[])[0]));
+    expect(url.pathname).toBe("/drive/v3/files");
+    expect(url.searchParams.get("spaces")).toBe("appDataFolder");
+    expect(url.searchParams.get("q")).toBe("name = 'progress.json' and trashed = false");
+    expect(url.searchParams.get("orderBy")).toBe("createdTime");
+  });
+
+  it("escapes quotes in the file name query", async () => {
+    const fetchImpl = vi.fn(async () => ok({ files: [] }));
+    await findAppDataFiles("it's.json", "tok", fetchImpl as unknown as typeof fetch);
+    const url = new URL(String((fetchImpl.mock.calls[0] as unknown[])[0]));
+    expect(url.searchParams.get("q")).toBe("name = 'it\\'s.json' and trashed = false");
+  });
+
+  it("rejects a list response without files", () => {
+    expect(() => parseAppDataList({})).toThrow(DriveError);
+  });
+
+  it("creates the file inside appDataFolder with a multipart upload", async () => {
+    const fetchImpl = vi.fn(async () => ok({ id: "new" }));
+    expect(await createAppDataJson("progress.json", { version: 1, books: {} }, "tok", fetchImpl as unknown as typeof fetch)).toBe("new");
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id");
+    expect(init.method).toBe("POST");
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer tok");
+    const boundary = /boundary=(.+)$/.exec(headers["Content-Type"])![1];
+    const body = String(init.body);
+    expect(body.startsWith(`--${boundary}\r\n`)).toBe(true);
+    expect(body.endsWith(`--${boundary}--`)).toBe(true);
+    expect(body).toContain('{"name":"progress.json","parents":["appDataFolder"],"mimeType":"application/json"}');
+    expect(body).toContain('{"version":1,"books":{}}');
+  });
+
+  it("updates the contents with a media PATCH", async () => {
+    const fetchImpl = vi.fn(async () => ok({ id: "f1" }));
+    await updateAppDataJson("f1", { a: 1 }, "tok", fetchImpl as unknown as typeof fetch);
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://www.googleapis.com/upload/drive/v3/files/f1?uploadType=media&fields=id");
+    expect(init).toMatchObject({ method: "PATCH", body: '{"a":1}' });
+  });
+
+  it("maps a 401 from the app folder to an auth error", async () => {
+    const fetchImpl = vi.fn(async () => new Response("", { status: 401 }));
+    await expect(updateAppDataJson("f1", {}, "tok", fetchImpl as unknown as typeof fetch)).rejects.toMatchObject({ kind: "auth" });
   });
 });

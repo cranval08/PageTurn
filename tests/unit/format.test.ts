@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, progressLabel, progressPercent } from "../../src/lib/format";
+import { formatBytes, progressLabel, progressPercent, timeAgo } from "../../src/lib/format";
 
 describe("formatBytes", () => {
   it.each([
@@ -24,5 +24,21 @@ describe("progress (LIB-1)", () => {
     expect(progressLabel(undefined, 1)).toBe("Not started · 1 page");
     expect(progressPercent(50, 50)).toBe(100);
     expect(progressPercent(5, 0)).toBe(0);
+  });
+});
+
+describe("PRG-2: last synced label", () => {
+  const now = 10_000_000_000;
+  it.each([
+    [0, "just now"],
+    [59_000, "just now"],
+    [60_000, "1 minute ago"],
+    [5 * 60_000, "5 minutes ago"],
+    [60 * 60_000, "1 hour ago"],
+    [23 * 3_600_000, "23 hours ago"],
+    [49 * 3_600_000, "2 days ago"],
+    [-5_000, "just now"],
+  ])("%d ms ago → %s", (ago, text) => {
+    expect(timeAgo(now - ago, now)).toBe(text);
   });
 });

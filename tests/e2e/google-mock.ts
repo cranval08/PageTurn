@@ -19,7 +19,8 @@ window.google.accounts = { oauth2: {
         if (g.mode === "popup_closed") return cfg.error_callback && cfg.error_callback({ type: "popup_closed" });
         if (g.mode === "popup_blocked") return cfg.error_callback && cfg.error_callback({ type: "popup_failed_to_open" });
         if (g.mode === "denied") return cfg.callback({ error: "access_denied" });
-        cfg.callback({ access_token: "tok" + n, expires_in: g.expiresIn, scope: cfg.scope, token_type: "Bearer" });
+        // g.scope: what the user granted (granular consent may untick boxes); defaults to all requested.
+        cfg.callback({ access_token: "tok" + n, expires_in: g.expiresIn, scope: g.scope || cfg.scope, token_type: "Bearer" });
       }, 20);
     } };
   },
@@ -84,19 +85,36 @@ export interface DriveFileMock {
   failDownloads?: { status: number; times: number };
 }
 
+export interface AppDataFileMock {
+  name: string;
+  body: string;
+  createdTime: string;
+}
+
 export interface DriveMock {
   files: Map<string, DriveFileMock>;
   /** Tokens Drive treats as revoked/expired (401). */
   rejectedTokens: Set<string>;
   downloads: string[];
+  /** PRG-2: the hidden app folder (drive.appdata). Share one DriveMock between contexts to act as two devices. */
+  appData: Map<string, AppDataFileMock>;
+  /** Uploads to the app folder ("create:<id>" / "update:<id>"). */
+  appDataWrites: string[];
+}
+
+/** PRG-2: the parsed progress.json in the mock app folder, if any. */
+export function appDataProgress(drive: DriveMock): { books: Record<string, { page: number; updatedAt: number; bookmarks: number[] }> } | null {
+  const file = [...drive.appData.values()].find((f) => f.name === "progress.json");
+  return file ? JSON.parse(file.body) : null;
 }
 
 export const DEFAULT_MODIFIED_TIME = "2026-11-10T09:00:00.000Z";
 
 export const USER = { name: "Test Student", email: "student@example.com", picture: "https://lh3.googleusercontent.com/a/test-avatar" };
 
-export async function mockGoogle(page: Page): Promise<DriveMock> {
-  const drive: DriveMock = { files: new Map(), rejectedTokens: new Set(), downloads: [] };
+/** Pass `shared` to make a second page (another "device") use the same Drive. */
+export async function mockGoogle(page: Page, shared?: DriveMock): Promise<DriveMock> {
+  const drive: DriveMock = shared ?? { files: new Map(), rejectedTokens: new Set(), downloads: [], appData: new Map(), appDataWrites: [] };
 
   // Block anything Google we don't explicitly mock, so no test reaches the network.
   for (const host of ["https://accounts.google.com/**", "https://apis.google.com/**", "https://www.googleapis.com/**", "https://*.googleusercontent.com/**"]) {
@@ -120,6 +138,12 @@ export async function mockGoogle(page: Page): Promise<DriveMock> {
     if (!authorized(route)) return route.fulfill({ status: 401, json: { error: { code: 401 } } });
     const url = new URL(route.request().url());
     const id = decodeURIComponent(url.pathname.split("/files/")[1]);
+    const app = drive.appData.get(id);
+    if (app) {
+      return url.searchParams.get("alt") === "media"
+        ? route.fulfill({ body: app.body, headers: { "Content-Type": "application/json" } })
+        : route.fulfill({ json: { id, name: app.name } });
+    }
     const file = drive.files.get(id);
     if (!file) return route.fulfill({ status: 404, json: { error: { code: 404 } } });
     if (url.searchParams.get("alt") === "media") {
@@ -135,6 +159,47 @@ export async function mockGoogle(page: Page): Promise<DriveMock> {
     });
   });
 
+  // PRG-2: list the app folder (files.list with spaces=appDataFolder).
+  await page.route(/^https:\/\/www\.googleapis\.com\/drive\/v3\/files(\?.*)?$/, (route) => {
+    if (!authorized(route)) return route.fulfill({ status: 401, json: { error: { code: 401 } } });
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("spaces") !== "appDataFolder") return route.fulfill({ status: 403, json: { error: { code: 403 } } });
+    const name = /name = '([^']+)'/.exec(url.searchParams.get("q") ?? "")?.[1];
+    const files = [...drive.appData.entries()]
+      .filter(([, f]) => !name || f.name === name)
+      .sort(([, a], [, b]) => a.createdTime.localeCompare(b.createdTime))
+      .map(([id, f]) => ({ id, modifiedTime: f.createdTime }));
+    return route.fulfill({ json: { files } });
+  });
+
+  // PRG-2: create (multipart POST) and update (media PATCH) app-folder files.
+  await page.route(/^https:\/\/www\.googleapis\.com\/upload\/drive\/v3\/files/, (route) => {
+    if (!authorized(route)) return route.fulfill({ status: 401, json: { error: { code: 401 } } });
+    const req = route.request();
+    const url = new URL(req.url());
+    const body = req.postData() ?? "";
+    if (req.method() === "POST") {
+      // multipart/related: "--b\r\nheaders\r\n\r\n{metadata}\r\n--b\r\nheaders\r\n\r\n{content}\r\n--b--"
+      const parts = body
+        .split(/--pageturn-[a-z0-9]+(?:--)?/)
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .map((p) => p.slice(p.indexOf("\r\n\r\n") + 4).trim());
+      const meta = JSON.parse(parts[0]) as { name: string; parents: string[] };
+      if (!meta.parents?.includes("appDataFolder")) return route.fulfill({ status: 403, json: { error: { code: 403 } } });
+      const id = `appdata-${drive.appData.size + 1}`;
+      drive.appData.set(id, { name: meta.name, body: parts[1], createdTime: new Date().toISOString() });
+      drive.appDataWrites.push(`create:${id}`);
+      return route.fulfill({ json: { id } });
+    }
+    const id = decodeURIComponent(url.pathname.split("/files/")[1] ?? "");
+    const existing = drive.appData.get(id);
+    if (req.method() !== "PATCH" || !existing) return route.fulfill({ status: 404, json: { error: { code: 404 } } });
+    existing.body = body;
+    drive.appDataWrites.push(`update:${id}`);
+    return route.fulfill({ json: { id } });
+  });
+
   return drive;
 }
 
@@ -147,7 +212,7 @@ export function setPicked(page: Page, docs: { id: string; name: string; mimeType
   }, docs);
 }
 
-export function setGis(page: Page, patch: { mode?: string; expiresIn?: number }) {
+export function setGis(page: Page, patch: { mode?: string; expiresIn?: number; scope?: string }) {
   return page.evaluate((p) => {
     const w = window as unknown as { __gis?: Record<string, unknown> };
     w.__gis ??= { requests: [], config: null, mode: "grant", expiresIn: 3600, revoked: [] };

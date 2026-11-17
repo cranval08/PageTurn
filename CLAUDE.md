@@ -6,7 +6,7 @@ PDF flipbook reader PWA with Google Drive. **`PRD.md` is the spec**: requirement
 
 - TypeScript, Vite 8, React **18.3** (pinned: react-pageflip 2.0.3 predates React 19), react-router-dom 7 (library mode, `BrowserRouter`)
 - `pdfjs-dist` 6: loaded lazily in `src/lib/pdf/loader.ts` together with its worker (`?url` import). Never import pdf.js from the initial bundle.
-- pdf.js runtime resources: `scripts/pdfjs-assets.mjs` (a Vite plugin) copies `wasm` (OpenJPEG/JBIG2/qcms, no quickjs), `cmaps`, `standard_fonts`, `iccs` from pdfjs-dist into `public/pdfjs/` (git-ignored) on dev start and build. `openPdf` passes them via `pdfResourceOptions()`, resolved from the SITE ROOT (relative URLs break under /read/…). Without them scanned pages (JPEG 2000/JBIG2) render blank and CMap text (CJK) is silently missing. The SW precaches the .wasm/.icc files and runtime-caches the rest. Phase 6 CSP must allow `'wasm-unsafe-eval'` in script-src.
+- pdf.js runtime resources: `scripts/pdfjs-assets.mjs` (a Vite plugin) copies `wasm` (OpenJPEG/JBIG2/qcms, no quickjs), `cmaps`, `standard_fonts`, `iccs` from pdfjs-dist into `public/pdfjs/` (git-ignored) on dev start and build. `openPdf` passes them via `pdfResourceOptions()`, resolved from the SITE ROOT (relative URLs break under /read/…). Without them scanned pages (JPEG 2000/JBIG2) render blank and CMap text (CJK) is silently missing. The SW precaches the .wasm/.icc files and runtime-caches the rest. The CSP allows `'wasm-unsafe-eval'` for them.
 - `react-pageflip` 2.0.3 over `page-flip` 2.0.7; only ever used through `src/components/FlipBook.tsx`
 - Zustand for state (`src/store/`), Tailwind CSS v4 via `@tailwindcss/vite` (theme tokens in `src/index.css` `@theme`)
 - Vitest + Testing Library (jsdom) for unit/component tests; Playwright (Chromium: `desktop-chrome`, `pixel-7`) for e2e
@@ -32,14 +32,15 @@ First Playwright run on a machine: `npx playwright install chromium`.
 ## Layout
 
 ```
-src/app/         route screens (LibraryPage, ReaderPage; Settings/Privacy later)
+src/app/         route screens (LibraryPage, ReaderPage, SettingsPage, PrivacyPage)
 src/components/  FlipBook (react-pageflip wrapper), PdfPage (one page; canvas from PageCache), ZoomLayer (all reader gestures),
                  Toolbar, GoToPage, ReaderSettingsSheet, BookCard, Menu, ImportPanel, …
 src/lib/         pure logic: layout.ts, input.ts, files.ts; pdf/ (loader, renderPage)
 src/lib/db/      Dexie: schema.ts (books, files, progress, kv), books.ts, progress.ts, settingsStorage.ts
 src/lib/addBook.ts, addDriveBook.ts  validate → open → cover → save pipelines (device, Drive)
 src/lib/google/  config (env, SCOPES), auth (GIS token, memory only), picker, drive (REST), scripts
-src/store/       Zustand stores: reader (current page), settings (persisted to IndexedDB kv)
+src/lib/sync/    syncDoc.ts (pure parse/merge of progress.json), sync.ts (one Drive round)
+src/store/       Zustand stores: reader (current page), settings (persisted to IndexedDB kv), auth, sync
 src/types/       hand-written .d.ts (page-flip ships no types)
 tests/unit/      *.test.ts(x)    tests/e2e/  *.spec.ts    tests/fixtures/  sample PDFs
 ```
@@ -56,7 +57,7 @@ tests/unit/      *.test.ts(x)    tests/e2e/  *.spec.ts    tests/fixtures/  sampl
 - Settings live in `useSettings`; only expose UI for settings whose behaviour exists (theme/animation/sound UI arrives with their phases).
 - Accessibility: icon buttons need `aria-label`; touch targets ≥ 44 px (`btn-primary`, `icon-btn`); page changes announced via the `aria-live` region.
 - Secrets: Google values come from `VITE_GOOGLE_*` in `.env.local` (git-ignored); keep `.env.example` in sync. Never store Google tokens in localStorage.
-- OAuth scopes: only `drive.file`, `drive.appdata` (Phase 6) and `openid email profile`, defined once in `src/lib/google/config.ts` `SCOPES` (unit-tested).
+- OAuth scopes: only `drive.file`, `drive.appdata` and `openid email profile`, defined once in `src/lib/google/config.ts` `SCOPES` (unit-tested).
 - Google popups: `requestToken()` / `useAuth().driveToken()` / `signIn()` must be called synchronously inside a click (popup blockers). GIS is preloaded when the library mounts; the Picker script loads on first use.
 - Token expiry (DRV-4): tokens are refreshed 60 s early; Drive 401 → `markExpired()` → "Sign in again" banner. Reading never needs a token, so the open book is never affected.
 - E2E Google mocks live in `tests/e2e/google-mock.ts` (GIS, gapi/Picker, Drive, userinfo; all other Google hosts are blocked). Control via `setGis`, `setPicked`, and the returned `DriveMock`.
@@ -94,3 +95,13 @@ tests/unit/      *.test.ts(x)    tests/e2e/  *.spec.ts    tests/fixtures/  sampl
 - Library sort is a per-device convenience in localStorage (`pageturn.librarySort`); search ignores case, accents and word order.
 - DRV-6: `checkQuietly` runs on reader open only if a token is already in memory (no popups without a click); the card menu's "Check Drive for update" may sign in. Updating re-imports via `importDriveFile`, keeping progress and bookmarks.
 - Fixture `outline-links.pdf` (outline + internal/external links) comes from `buildPdf` options `outline`, `links`, `label`. Beware `String.replace` with `$` in replacement strings when scripting edits (use split/join).
+
+## Sync, CSP and deploy (Phase 6)
+
+- PRG-2: `progress.json` in the Drive appDataFolder: `{ version: 1, books: { [bookId]: { page, updatedAt, bookmarks } } }` (no titles). Merge is last-write-wins per book on `updatedAt` (`mergeProgress`, pure). Remote rows for books not in this library are still written to `progress`, so importing that Drive book later opens at the synced page (`saveBook` keeps progress). Duplicate files (two first syncs) are folded into the oldest.
+- `requestSync()` (store/sync.ts) never opens a popup: it needs a token in memory and `canSync()` (granular consent may untick drive.appdata; Settings then offers "Turn on sync"). Concurrent calls coalesce into one more round. 401 → `markExpired()`.
+- When sync runs: on sign-in (auth-store subscription in `initSync`), library mount, reader open, `online`, 5 s after a page save or bookmark (`scheduleSync`), flushed on reader unmount/pagehide/hidden, and before a fresh Drive import opens (`syncWithin`, 4 s cap). A sync that changed a book bumps `useSync.revision`: the library reloads; an open reader follows only if it hasn't turned since opening (bookmarks always follow).
+- Sync writes go through `trackWrite`, so `loadLibrary` never reads stale progress.
+- CSP: one source, `scripts/csp.mjs`, injected as a `<meta>` right after `<meta charset>` at BUILD only (the dev server has none because of HMR). e2e runs under it. Add any new external host there. Headers a meta can't set live in `public/_headers` (Netlify/Cloudflare) and `vercel.json`; `tests/unit/deploy.test.ts` keeps them identical.
+- e2e: `mockGoogle(page, sharedDrive)` lets a second browser context act as another device. The mock has the app folder (`drive.appData`, `appDataProgress()`), and `setGis(page, { scope })` simulates unticked consent boxes.
+- Deploying needs the user's Vercel/Netlify account and Google Cloud changes (origins, API key referrers, privacy link); see README "Deploying".

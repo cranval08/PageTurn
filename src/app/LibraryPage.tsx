@@ -17,6 +17,7 @@ import { checkForDriveUpdate } from "../lib/driveUpdates";
 import { loadSort, saveSort, SORT_LABELS, sortAndFilter, type LibrarySort } from "../lib/librarySort";
 import { PdfOpenError } from "../lib/pdf/loader";
 import { useAuth } from "../store/auth";
+import { requestSync, useSync } from "../store/sync";
 import { useDriveImport } from "./useDriveImport";
 
 /** Shown in the "Continue reading" strip once the library has more books than this. */
@@ -42,9 +43,16 @@ export default function LibraryPage() {
     setLibrary(await loadLibrary());
   }, []);
 
+  // PRG-2: reload when a sync brought progress from another device.
+  const syncRevision = useSync((s) => s.revision);
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, syncRevision]);
+
+  // PRG-2: pull progress from other devices when the library opens (only with a token in memory).
+  useEffect(() => {
+    void requestSync();
+  }, []);
 
   // Load Google Identity Services early so the sign-in popup can open straight from a click.
   useEffect(() => {
@@ -378,6 +386,12 @@ export default function LibraryPage() {
           </section>
         )}
       </main>
+
+      <footer className="mx-auto max-w-6xl px-4 pb-8 text-sm text-ink-muted">
+        <Link to="/privacy" className="inline-flex min-h-11 items-center underline underline-offset-2 hover:text-ink">
+          Privacy
+        </Link>
+      </footer>
 
       {updating && (
         <ConfirmDialog

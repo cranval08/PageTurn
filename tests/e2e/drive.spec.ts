@@ -30,8 +30,8 @@ test.describe("Phase 3: Google sign-in and Drive", () => {
     await signIn(page);
     const config = (await gisState(page)).config as { client_id: string; scope: string };
     expect(config.client_id).toBe("e2e-test-client.apps.googleusercontent.com");
-    // Acceptance: only drive.file and profile scopes are requested.
-    expect(config.scope).toBe("https://www.googleapis.com/auth/drive.file openid email profile");
+    // Acceptance: only drive.file, drive.appdata (PRG-2 sync) and profile scopes are requested.
+    expect(config.scope).toBe("https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata openid email profile");
 
     await page.getByTestId("account-button").click();
     await expect(page.getByTestId("account-name")).toHaveText(USER.name);

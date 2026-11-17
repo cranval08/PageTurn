@@ -109,6 +109,7 @@ try {
     { name: "Library (1 book)", url: `${ORIGIN}/`, profile: bookProfile },
     { name: "Reader", url: readerUrl, profile: bookProfile },
     { name: "Settings", url: `${ORIGIN}/settings`, profile: bookProfile },
+    { name: "Privacy", url: `${ORIGIN}/privacy`, profile: emptyProfile },
   ];
   const rows = [];
   for (const p of pages) {

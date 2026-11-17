@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { UpdateToast } from "./components/UpdateToast";
 import { initPwa } from "./pwa";
+import { initSync } from "./store/sync";
 import { applyThemeEarly, ThemeSync } from "./theme";
 import "./index.css";
 
@@ -17,3 +18,4 @@ createRoot(document.getElementById("root")!).render(
 );
 
 initPwa();
+initSync();

@@ -1,4 +1,4 @@
-import { DRIVE_API, USERINFO_URL } from "./config";
+import { DRIVE_API, DRIVE_UPLOAD_API, USERINFO_URL } from "./config";
 
 export type DriveErrorKind = "auth" | "not_found" | "forbidden" | "network" | "server" | "bad_response";
 
@@ -66,10 +66,10 @@ export function driveErrorFor(status: number): DriveError {
   return new DriveError("bad_response", `Google Drive returned an error (${status}).`, status);
 }
 
-async function driveFetch(url: string, token: string, fetchImpl: FetchLike, signal?: AbortSignal): Promise<Response> {
+async function driveFetch(url: string, token: string, fetchImpl: FetchLike, signal?: AbortSignal, init: RequestInit = {}): Promise<Response> {
   let res: Response;
   try {
-    res = await fetchImpl(url, { headers: { Authorization: `Bearer ${token}` }, signal });
+    res = await fetchImpl(url, { ...init, headers: { ...(init.headers as Record<string, string>), Authorization: `Bearer ${token}` }, signal });
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
     throw new DriveError("network", "Couldn't reach Google Drive. Check your connection.");
@@ -122,4 +122,62 @@ export async function downloadDriveFile(id: string, token: string, opts: Downloa
     throw new DriveError("network", "The download was interrupted. Check your connection and retry.");
   }
   return new Blob(chunks as BlobPart[], { type: "application/pdf" });
+}
+
+// ---- PRG-2: PageTurn's hidden app folder (drive.appdata) -------------------------
+
+export interface AppDataFile {
+  id: string;
+  modifiedTime?: string;
+}
+
+export function parseAppDataList(json: unknown): AppDataFile[] {
+  const files = (json as { files?: unknown } | null)?.files;
+  if (!Array.isArray(files)) throw new DriveError("bad_response", "Google Drive sent an unexpected response.");
+  return files
+    .filter((f): f is { id: string; modifiedTime?: unknown } => typeof (f as { id?: unknown })?.id === "string")
+    .map((f) => ({ id: f.id, modifiedTime: typeof f.modifiedTime === "string" ? f.modifiedTime : undefined }));
+}
+
+/** Files named `name` in the app folder, oldest first (two devices may each create one). */
+export async function findAppDataFiles(name: string, token: string, fetchImpl: FetchLike = fetch): Promise<AppDataFile[]> {
+  const q = `name = '${name.replace(/['\\]/g, "\\$&")}' and trashed = false`;
+  const params = new URLSearchParams({ spaces: "appDataFolder", q, fields: "files(id,modifiedTime)", orderBy: "createdTime", pageSize: "10" });
+  const res = await driveFetch(`${DRIVE_API}/files?${params}`, token, fetchImpl);
+  return parseAppDataList(await res.json());
+}
+
+/** Download an app-folder JSON file. Returns null if it isn't valid JSON (treated as empty). */
+export async function readAppDataJson(id: string, token: string, fetchImpl: FetchLike = fetch): Promise<unknown> {
+  const res = await driveFetch(`${DRIVE_API}/files/${encodeURIComponent(id)}?alt=media`, token, fetchImpl);
+  try {
+    return JSON.parse(await res.text());
+  } catch {
+    return null;
+  }
+}
+
+/** Create a JSON file in the app folder (multipart upload). Returns its id. */
+export async function createAppDataJson(name: string, data: unknown, token: string, fetchImpl: FetchLike = fetch): Promise<string> {
+  const boundary = `pageturn-${Math.random().toString(36).slice(2)}`;
+  const CRLF = "\r\n";
+  const part = (json: unknown) => `--${boundary}${CRLF}Content-Type: application/json; charset=UTF-8${CRLF}${CRLF}${JSON.stringify(json)}${CRLF}`;
+  const body = part({ name, parents: ["appDataFolder"], mimeType: "application/json" }) + part(data) + `--${boundary}--`;
+  const res = await driveFetch(`${DRIVE_UPLOAD_API}/files?uploadType=multipart&fields=id`, token, fetchImpl, undefined, {
+    method: "POST",
+    headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+    body,
+  });
+  const json = (await res.json()) as { id?: unknown };
+  if (typeof json?.id !== "string") throw new DriveError("bad_response", "Google Drive sent an unexpected response.");
+  return json.id;
+}
+
+/** Replace the contents of an app-folder JSON file. */
+export async function updateAppDataJson(id: string, data: unknown, token: string, fetchImpl: FetchLike = fetch): Promise<void> {
+  await driveFetch(`${DRIVE_UPLOAD_API}/files/${encodeURIComponent(id)}?uploadType=media&fields=id`, token, fetchImpl, undefined, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json; charset=UTF-8" },
+    body: JSON.stringify(data),
+  });
 }

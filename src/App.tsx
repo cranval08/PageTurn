@@ -5,6 +5,7 @@ import LibraryPage from "./app/LibraryPage";
 // The reader pulls in react-pageflip and pdf.js, so it loads on demand.
 const ReaderPage = lazy(() => import("./app/ReaderPage"));
 const SettingsPage = lazy(() => import("./app/SettingsPage"));
+const PrivacyPage = lazy(() => import("./app/PrivacyPage"));
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
           <Route path="/" element={<LibraryPage />} />
           <Route path="/read/:bookId" element={<ReaderPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="*" element={<LibraryPage />} />
         </Routes>
       </Suspense>

@@ -14,7 +14,7 @@ vi.mock("../../src/lib/google/drive", async (importOriginal) => ({
 import * as auth from "../../src/lib/google/auth";
 import { useAuth } from "../../src/store/auth";
 
-type Mode = "grant" | "popup_blocked" | "popup_closed" | "no_drive_scope";
+type Mode = "grant" | "popup_blocked" | "popup_closed" | "no_drive_scope" | "no_appdata_scope";
 
 /** Fake Google Identity Services token client. */
 function installFakeGis() {
@@ -34,7 +34,12 @@ function installFakeGis() {
           const n = state.requests.length;
           if (state.mode === "popup_blocked") return config.error_callback?.({ type: "popup_failed_to_open" });
           if (state.mode === "popup_closed") return config.error_callback?.({ type: "popup_closed" });
-          const scope = state.mode === "no_drive_scope" ? "openid email profile" : config.scope;
+          const scope =
+            state.mode === "no_drive_scope"
+              ? "openid email profile"
+              : state.mode === "no_appdata_scope"
+                ? config.scope.replace(" https://www.googleapis.com/auth/drive.appdata", "")
+                : config.scope;
           config.callback({ access_token: `tok${n}`, expires_in: state.expiresIn, scope, token_type: "Bearer" });
         },
       };
@@ -63,7 +68,21 @@ afterEach(() => vi.useRealTimers());
 describe("GIS token client (DRV-1)", () => {
   it("is created with the client id and only the PRD scopes", () => {
     expect(gis.config?.client_id).toBe("test-client.apps.googleusercontent.com");
-    expect(gis.config?.scope).toBe("https://www.googleapis.com/auth/drive.file openid email profile");
+    expect(gis.config?.scope).toBe("https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata openid email profile");
+  });
+
+  it("PRG-2: sync is allowed only when the app-folder scope was granted", async () => {
+    expect(auth.canSync()).toBe(false);
+    await auth.requestToken();
+    expect(auth.canSync()).toBe(true);
+    auth.invalidateToken();
+    gis.mode = "no_appdata_scope"; // granular consent: user unticked the app-folder box
+    await expect(auth.requestToken()).resolves.toBe("tok2");
+    expect(auth.canSync()).toBe(false);
+    gis.mode = "grant";
+    await auth.requestToken();
+    await auth.signOutGoogle();
+    expect(auth.canSync()).toBe(false);
   });
 
   it("keeps the token in memory, not localStorage", async () => {

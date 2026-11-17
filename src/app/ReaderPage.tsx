@@ -30,6 +30,7 @@ import { MAX_ZOOM, MIN_ZOOM } from "../lib/zoom";
 import { useAuth } from "../store/auth";
 import { useReaderStore } from "../store/reader";
 import { useSettings } from "../store/settings";
+import { flushScheduledSync, requestSync, scheduleSync, useSync } from "../store/sync";
 import { useAutoHide } from "./useAutoHide";
 
 /** PRG-1: progress is saved this long after the last page turn. */
@@ -105,6 +106,8 @@ export default function ReaderPage() {
   const bookRef = useRef<FlipBookHandle>(null);
   const zoomRef = useRef<ZoomLayerHandle>(null);
   const bookmarks = useReaderStore((s) => s.bookmarks);
+  /** PRG-2: the page the book opened at, while the reader hasn't turned away from it. */
+  const untouchedIndex = useRef<number | null>(null);
   const chrome = useAutoHide(panel !== null || goToOpen);
   const fullscreen = useFullscreen();
 
@@ -116,7 +119,10 @@ export default function ReaderPage() {
   const saver = useMemo(
     () =>
       debounce(
-        (page: number) => void savePage(bookId, page).catch((err) => console.error("Saving progress failed", err)),
+        (page: number) =>
+          void savePage(bookId, page)
+            .then(() => scheduleSync()) // PRG-2
+            .catch((err) => console.error("Saving progress failed", err)),
         SAVE_DEBOUNCE_MS,
       ),
     [bookId],
@@ -129,6 +135,7 @@ export default function ReaderPage() {
       const pending = saver.pending();
       if (pending) stashPendingProgress(bookId, pending[0]);
       flush();
+      flushScheduledSync(Boolean(pending)); // PRG-2: upload before the app is frozen or closed
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") leave();
@@ -138,7 +145,9 @@ export default function ReaderPage() {
     return () => {
       window.removeEventListener("pagehide", leave);
       document.removeEventListener("visibilitychange", onVisibility);
+      const pending = saver.pending();
       flush();
+      flushScheduledSync(Boolean(pending));
     };
   }, [saver, bookId]);
 
@@ -172,7 +181,9 @@ export default function ReaderPage() {
         store.setPageCount(doc.numPages);
         store.setPageIndex(start);
         store.setBookmarks(progress?.bookmarks ?? []);
+        untouchedIndex.current = start;
         setLoad({ status: "ready", book, doc, aspect: vp.width / vp.height });
+        void requestSync(); // PRG-2: quietly pull progress from other devices (token in memory only)
         // DRV-6: quietly ask Drive whether a newer version exists (only if already signed in).
         void checkQuietly(book).then((remote) => {
           if (!cancelled && remote) setUpdate({ status: "available" });
@@ -230,6 +241,28 @@ export default function ReaderPage() {
     bookRef.current?.goTo(index);
   }, []);
 
+  // PRG-2: a sync brought newer progress for this book from another device.
+  // Bookmarks always follow; the page only moves if the reader hasn't turned yet.
+  const syncRevision = useSync((s) => s.revision);
+  useEffect(() => {
+    if (load.status !== "ready" || !useSync.getState().lastChanged.includes(bookId)) return;
+    let cancelled = false;
+    void getProgress(bookId).then((progress) => {
+      if (cancelled || !progress) return;
+      const store = useReaderStore.getState();
+      store.setBookmarks(progress.bookmarks);
+      const target = Math.min(Math.max(progress.page - 1, 0), load.doc.numPages - 1);
+      if (untouchedIndex.current !== null && store.pageIndex === untouchedIndex.current && target !== store.pageIndex) {
+        untouchedIndex.current = target;
+        goToIndex(target);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Runs once per sync revision.
+  }, [syncRevision]);
+
   // RDR-12: in-page PDF links navigate through the store.
   useEffect(() => {
     useReaderStore.getState().setNavigate(goToIndex);
@@ -240,7 +273,10 @@ export default function ReaderPage() {
   const toggleBookmarkAt = useCallback(
     (page: number) => {
       const current = pageToSave(useReaderStore.getState().pageIndex, layoutRef.current);
-      void toggleBookmark(bookId, page, current).then((marks) => useReaderStore.getState().setBookmarks(marks));
+      void toggleBookmark(bookId, page, current).then((marks) => {
+        useReaderStore.getState().setBookmarks(marks);
+        scheduleSync();
+      });
     },
     [bookId],
   );
