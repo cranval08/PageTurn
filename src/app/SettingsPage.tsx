@@ -203,6 +203,12 @@ export default function SettingsPage() {
             Privacy: what PageTurn stores and why
           </Link>
         </p>
+        <p className="-mt-4 text-sm text-ink-muted">
+          {/* A real file (built by scripts/licenses.mjs), so a plain link, not a router Link. */}
+          <a href="/third-party-licenses.txt" className="inline-flex min-h-11 items-center text-accent underline underline-offset-2">
+            Open-source licenses
+          </a>
+        </p>
       </main>
 
       {confirmClear && (

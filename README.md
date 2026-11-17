@@ -143,6 +143,10 @@ The production build puts a strict Content-Security-Policy in `index.html` (defi
 - Zustand for state, Tailwind CSS for styling
 - Vitest and Testing Library for unit tests, Playwright for end-to-end tests
 
+### Third-party licences
+
+Every build writes `dist/third-party-licenses.txt` (served at `/third-party-licenses.txt` and linked from Settings and the Privacy page). It has the licence and NOTICE text of each npm package whose code ships in the app, among them StPageFlip (`page-flip`) and `react-pageflip` (MIT, © Nodlik), pdf.js and Dexie (Apache-2.0). It also has the licences of the pdf.js decoders, fonts and colour profiles in `/pdfjs/`, which ship next to those files too. `scripts/licenses.mjs` builds the file from the bundle's modules, and the build fails if a shipped package has no licence file. The service worker's Workbox modules aren't in the app's bundle, so they're listed by hand in `EXTRA_PACKAGES`; an e2e test fails if that list falls out of date.
+
 ## Project structure
 
 ```

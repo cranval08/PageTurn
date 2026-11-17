@@ -110,6 +110,14 @@ export default function PrivacyPage() {
           </p>
         </section>
 
+        <p className="text-sm text-ink-muted">
+          PageTurn is built with open-source software; see the{" "}
+          <a className="text-accent underline underline-offset-2" href="/third-party-licenses.txt">
+            open-source licenses
+          </a>
+          .
+        </p>
+
         <p className="text-sm text-ink-muted">Last updated 17 November 2026.</p>
 
         <Link to="/" className="btn-secondary inline-flex">
