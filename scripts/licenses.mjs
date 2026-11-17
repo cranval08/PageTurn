@@ -96,11 +96,36 @@ export function buildLicensesText(names, { from = root, assetsDir = join(from, "
   return out.join("\n");
 }
 
-/** Vite plugin: emit dist/third-party-licenses.txt for the packages in the production bundle. */
+/**
+ * The app's runtime dependencies and theirs (package.json "dependencies", followed transitively).
+ * Used by the dev server, which has no bundle to inspect; production uses the bundle's real modules.
+ */
+export function dependencyClosure(from = root) {
+  const seen = new Set();
+  const visit = (name) => {
+    if (seen.has(name)) return;
+    seen.add(name);
+    const pkg = JSON.parse(readFileSync(join(from, "node_modules", ...name.split("/"), "package.json"), "utf8"));
+    for (const dep of Object.keys(pkg.dependencies ?? {})) visit(dep);
+  };
+  const app = JSON.parse(readFileSync(join(from, "package.json"), "utf8"));
+  for (const dep of [...Object.keys(app.dependencies ?? {}), ...EXTRA_PACKAGES]) visit(dep);
+  return [...seen];
+}
+
+/**
+ * Vite plugin: emits dist/third-party-licenses.txt for the packages in the production bundle,
+ * and serves the same path from the dev server (otherwise the link would fall back to the app).
+ */
 export function thirdPartyLicenses() {
   return {
     name: "pageturn-third-party-licenses",
-    apply: "build",
+    configureServer(server) {
+      server.middlewares.use(`/${LICENSES_FILE}`, (_req, res) => {
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(buildLicensesText(dependencyClosure()));
+      });
+    },
     generateBundle(_options, bundle) {
       const names = new Set(EXTRA_PACKAGES);
       for (const item of Object.values(bundle)) {

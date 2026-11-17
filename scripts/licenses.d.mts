@@ -5,5 +5,7 @@ export const EXTRA_PACKAGES: string[];
 export function packageNameFromId(id: string): string | null;
 /** The full notices text for these packages. Throws if one has no LICENSE file. */
 export function buildLicensesText(names: string[], options?: { from?: string; assetsDir?: string }): string;
-/** Vite plugin: emits dist/third-party-licenses.txt in production builds. */
+/** Runtime dependencies of the app, followed transitively, plus EXTRA_PACKAGES (dev server list). */
+export function dependencyClosure(from?: string): string[];
+/** Vite plugin: emits dist/third-party-licenses.txt in builds and serves it from the dev server. */
 export function thirdPartyLicenses(): Plugin;

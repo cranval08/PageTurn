@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildLicensesText, EXTRA_PACKAGES, LICENSES_FILE, packageNameFromId, thirdPartyLicenses } from "../../scripts/licenses.mjs";
+import { buildLicensesText, dependencyClosure, EXTRA_PACKAGES, LICENSES_FILE, packageNameFromId, thirdPartyLicenses } from "../../scripts/licenses.mjs";
 
 describe("Licences: third-party notices", () => {
   it("maps bundled module ids to their npm package, ignoring the app's own code", () => {
@@ -40,12 +40,24 @@ describe("Licences: third-party notices", () => {
     }
   });
 
-  it("the plugin emits the file from the bundle's modules in production builds only", () => {
+  it("the dev server serves the licences too, from the app's dependencies and theirs", () => {
+    type Handler = (req: unknown, res: { setHeader(k: string, v: string): void; end(body: string): void }) => void;
+    const routes: Record<string, Handler> = {};
+    const plugin = thirdPartyLicenses() as unknown as { configureServer(s: unknown): void };
+    plugin.configureServer({ middlewares: { use: (path: string, fn: Handler) => (routes[path] = fn) } });
+    const headers: Record<string, string> = {};
+    let body = "";
+    routes[`/${LICENSES_FILE}`]({}, { setHeader: (k, v) => (headers[k] = v), end: (b) => (body = b) });
+    expect(headers["Content-Type"]).toMatch(/^text\/plain/);
+    expect(body).toContain("Copyright (c) 2020 Nodlik");
+    // Transitive: react-dom brings scheduler, @use-gesture/react brings @use-gesture/core.
+    expect(dependencyClosure()).toEqual(expect.arrayContaining(["page-flip", "react-pageflip", "scheduler", "@use-gesture/core", ...EXTRA_PACKAGES]));
+  });
+
+  it("the build emits the file from the bundle's modules", () => {
     const plugin = thirdPartyLicenses() as unknown as {
-      apply: string;
       generateBundle(this: { emitFile(f: { fileName: string; source: string }): void }, o: unknown, b: unknown): void;
     };
-    expect(plugin.apply).toBe("build");
     const emitted: { fileName: string; source: string }[] = [];
     plugin.generateBundle.call({ emitFile: (f) => emitted.push(f) }, {}, {
       "ReaderPage.js": { type: "chunk", moduleIds: ["/app/node_modules/page-flip/dist/js/page-flip.module.js", "/app/src/app/ReaderPage.tsx"] },
